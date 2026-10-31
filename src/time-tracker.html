@@ -1,0 +1,740 @@
+<title>Studio Time Card</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=Martian+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column — summary bar, project time-cards grid, then the day-grouped log. */
+:root {
+  --bg: #eef1f0;
+  --surface: #ffffff;
+  --sunk: #e4e9e7;
+  --ink: #15201d;
+  --muted: #5b6965;
+  --line: #d3dbd8;
+  --focus: #2f5bea;
+  --warn: #a35a00;
+  --warn-bg: #fff1dc;
+  --danger: #b4232f;
+  --on-color: #ffffff;
+  --shadow: 0 1px 2px rgba(20, 32, 29, .06), 0 4px 16px rgba(20, 32, 29, .05);
+  --scrim: rgba(15, 22, 20, .45);
+
+  --c-cobalt: #2f5bea;
+  --c-teal: #0d7f71;
+  --c-violet: #7a3fc8;
+  --c-orange: #c9501f;
+  --c-rose: #bd2f62;
+  --c-olive: #5f7419;
+  --c-amber: #9c6408;
+
+  --f-ui: "Familjen Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-num: "Martian Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111615; --surface: #1a201f; --sunk: #141a19; --ink: #e6ecea; --muted: #94a39f;
+    --line: #2b3533; --focus: #7d9bff; --warn: #f2b25c; --warn-bg: #3a2a12; --danger: #ff7b86;
+    --shadow: 0 1px 2px rgba(0,0,0,.4); --scrim: rgba(0,0,0,.6);
+    --c-cobalt: #3d64e6; --c-teal: #13897a; --c-violet: #8449d0; --c-orange: #c95a28;
+    --c-rose: #c13a69; --c-olive: #667c1f; --c-amber: #a56d0f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111615; --surface: #1a201f; --sunk: #141a19; --ink: #e6ecea; --muted: #94a39f;
+  --line: #2b3533; --focus: #7d9bff; --warn: #f2b25c; --warn-bg: #3a2a12; --danger: #ff7b86;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); --scrim: rgba(0,0,0,.6);
+  --c-cobalt: #3d64e6; --c-teal: #13897a; --c-violet: #8449d0; --c-orange: #c95a28;
+  --c-rose: #c13a69; --c-olive: #667c1f; --c-amber: #a56d0f;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--f-ui); font-size: 15px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 28px 64px; display: grid; gap: 28px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.label { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+/* header */
+header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px 24px; }
+h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-wrap: balance; }
+.sub { margin: 2px 0 0; color: var(--muted); }
+.totals { display: flex; gap: 28px; flex-wrap: wrap; }
+.totals div { display: grid; gap: 2px; }
+.totals .num { font-size: 20px; font-weight: 500; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.switch { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); cursor: pointer; user-select: none; }
+.switch input { appearance: none; width: 34px; height: 20px; border-radius: 20px; background: var(--line); position: relative; margin: 0; cursor: pointer; transition: background .15s; }
+.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); transition: transform .15s; }
+.switch input:checked { background: var(--ink); }
+.switch input:checked::after { transform: translateX(14px); }
+.note-bar { font-size: 13px; color: var(--muted); }
+.note-bar[data-kind="warn"] { color: var(--warn); }
+
+/* buttons */
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 14px; font-weight: 500; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--ink); background: var(--sunk); }
+.btn.danger { color: var(--danger); }
+.btn.small { padding: 5px 10px; font-size: 13px; border-radius: 8px; }
+
+/* project cards */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 248px), 1fr)); gap: 14px; }
+.card {
+  --pc: var(--c-cobalt);
+  position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 16px 16px 14px; display: grid; gap: 14px; align-content: start; box-shadow: var(--shadow);
+  transition: background .2s, border-color .2s, color .2s;
+  min-width: 0;
+}
+.card.running { background: var(--pc); border-color: var(--pc); color: var(--on-color); }
+.card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--pc); flex: none; }
+.card.running .dot { background: var(--on-color); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.key { font-family: var(--f-num); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; flex: none; }
+.card.running .key { color: var(--on-color); border-color: rgba(255,255,255,.4); }
+.pname {
+  flex: 1; min-width: 0; font-size: 17px; font-weight: 600; background: none; border: 0; padding: 2px 4px; margin: -2px -4px;
+  border-radius: 6px; text-align: left; overflow-wrap: anywhere;
+}
+.pname:hover { background: var(--sunk); }
+.card.running .pname:hover { background: rgba(255,255,255,.14); }
+.pname-input { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; border: 1px solid var(--focus); border-radius: 6px; padding: 1px 6px; background: var(--surface); color: var(--ink); }
+.menu-btn { border: 0; background: none; width: 30px; height: 30px; border-radius: 8px; flex: none; color: inherit; font-size: 18px; line-height: 1; opacity: .7; }
+.menu-btn:hover { background: var(--sunk); opacity: 1; }
+.card.running .menu-btn:hover { background: rgba(255,255,255,.14); }
+.session { display: grid; gap: 2px; }
+.session .big { font-size: 34px; font-weight: 500; line-height: 1.1; }
+.card:not(.running) .session .big { color: var(--muted); opacity: .55; }
+.card .label { color: inherit; opacity: .7; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.card.running .stats { border-color: rgba(255,255,255,.28); }
+.stats div { display: grid; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
+.stats .num { font-size: 13.5px; }
+.toggle {
+  width: 100%; border: 0; border-radius: 10px; padding: 12px; font-weight: 600; font-size: 15px;
+  background: var(--pc); color: var(--on-color); display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.toggle:hover { filter: brightness(1.08); }
+.card.running .toggle { background: var(--on-color); color: var(--pc); }
+.toggle .ico { width: 10px; height: 10px; }
+.toggle .ico.play { width: 0; height: 0; border-left: 10px solid currentColor; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+.toggle .ico.stop { background: currentColor; border-radius: 2px; }
+.long { font-size: 12.5px; background: rgba(0,0,0,.18); border-radius: 8px; padding: 6px 9px; }
+.add-tile {
+  border: 1.5px dashed var(--line); border-radius: var(--r); background: transparent; min-height: 180px;
+  display: grid; place-content: center; gap: 4px; color: var(--muted); font-weight: 500; text-align: center;
+}
+.add-tile:hover { border-color: var(--muted); color: var(--ink); }
+.add-tile .plus { font-size: 26px; line-height: 1; }
+
+/* popover menu */
+.pop {
+  position: absolute; top: 46px; right: 10px; z-index: 5; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.18);
+  padding: 12px; width: 236px; display: grid; gap: 10px;
+}
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.sw { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; padding: 0; }
+.sw[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 1px; }
+.field { display: grid; gap: 4px; }
+.field input, .field select, .field textarea {
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; background: var(--surface); width: 100%; min-width: 0;
+}
+.pop .row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* sections */
+section { display: grid; gap: 14px; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+h2 { margin: 0; font-size: 19px; font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 11px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip .dot { width: 8px; height: 8px; }
+
+.archived { background: var(--sunk); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 8px; }
+.archived summary { cursor: pointer; color: var(--muted); font-weight: 500; }
+.arch-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
+.arch-row .grow { flex: 1; min-width: 120px; }
+
+/* log */
+.log { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.day { display: flex; justify-content: space-between; gap: 10px; padding: 10px 16px; background: var(--sunk); border-bottom: 1px solid var(--line); font-weight: 600; font-size: 13.5px; }
+.day .num { font-weight: 500; }
+.entry { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto auto; gap: 4px 14px; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--line); }
+.entry:last-child { border-bottom: 0; }
+.entry .when { font-size: 12.5px; color: var(--muted); }
+.entry .what { display: grid; gap: 3px; min-width: 0; }
+.entry .note { overflow-wrap: anywhere; }
+.entry .note.missing { color: var(--warn); font-style: italic; }
+.entry .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.entry .dur { font-size: 14px; text-align: right; }
+.tag { border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; }
+.empty { padding: 28px 18px; color: var(--muted); text-align: center; }
+@media (max-width: 560px) {
+  .entry { grid-template-columns: minmax(0, 1fr) auto; }
+  .entry .when { grid-column: 1 / -1; }
+  .entry .acts { grid-column: 1 / -1; justify-self: start; }
+}
+
+/* dialog */
+.scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 20; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.dialog { --pc: var(--c-cobalt); width: min(480px, 100%); max-height: 100%; overflow: auto; background: var(--surface); border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.dialog .band { background: var(--pc); color: var(--on-color); padding: 16px 20px; display: flex; justify-content: space-between; align-items: end; gap: 10px; border-radius: 18px 18px 0 0; }
+.dialog .band h3 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+.dialog .band .num { font-size: 26px; }
+.dialog .body { padding: 18px 20px 20px; display: grid; gap: 14px; }
+.dialog textarea { min-height: 84px; resize: vertical; }
+.dur-edit { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dur-edit input { width: 72px; }
+.dialog .acts { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.dialog .acts .right { display: flex; gap: 8px; margin-left: auto; }
+.hint { font-size: 12.5px; color: var(--muted); }
+.queue { font-size: 12.5px; opacity: .85; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 10px; z-index: 30; font-size: 14px; display: flex; gap: 12px; align-items: center; max-width: calc(100% - 32px); }
+.toast button { background: none; border: 0; color: inherit; text-decoration: underline; font-weight: 600; padding: 0; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Studio Time Card</h1>
+      <p class="sub">Press a project to start its clock. Press again to stop and log what you did.</p>
+    </div>
+    <div class="totals" id="totals" aria-live="off"></div>
+  </header>
+
+  <div class="toolbar">
+    <label class="switch" for="single"><input type="checkbox" id="single"> One timer at a time</label>
+    <span class="note-bar" id="storeNote">Loading your projects…</span>
+  </div>
+
+  <section aria-labelledby="projHead">
+    <h2 id="projHead" class="sr">Projects</h2>
+    <div class="grid" id="grid"></div>
+    <details class="archived" id="archived" hidden>
+      <summary id="archSummary">Archived projects</summary>
+      <div id="archList"></div>
+    </details>
+  </section>
+
+  <section aria-labelledby="logHead">
+    <div class="sec-head">
+      <h2 id="logHead">Log</h2>
+      <div class="chips">
+        <button class="btn small" id="addManual" type="button">+ Add time manually</button>
+        <button class="btn small" id="exportCsv" type="button">Export CSV</button>
+      </div>
+    </div>
+    <div class="chips" id="filters"></div>
+    <div class="log" id="log"></div>
+  </section>
+</div>
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script>
+(() => {
+  "use strict";
+  const COLORS = ["cobalt", "teal", "violet", "orange", "rose", "olive", "amber"];
+  const TAGS = ["Design", "Development", "Copy & comms", "Meeting", "Revisions", "Admin"];
+  const LONG_RUN = 3 * 3600; // seconds before a running timer gets a "still working?" note
+  const LS_KEY = "ftt-v1";
+
+  /* ---------- state ---------- */
+  const state = { projects: {}, entries: {}, settings: { single: false, currency: "$" }, ready: false };
+  const ui = { editingName: null, nameDraft: "", menuFor: null, filter: "all", queue: [], modal: null, confirmDel: null };
+
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const $ = (s, r = document) => r.querySelector(s);
+  function el(tag, attrs = {}, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k === "style") n.setAttribute("style", v);
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const k of kids.flat()) if (k != null && k !== false) n.append(k.nodeType ? k : document.createTextNode(k));
+    return n;
+  }
+
+  /* ---------- time helpers ---------- */
+  const pad = n => String(n).padStart(2, "0");
+  function clock(sec) { sec = Math.max(0, Math.floor(sec)); return `${Math.floor(sec / 3600)}:${pad(Math.floor(sec / 60) % 60)}:${pad(sec % 60)}`; }
+  function hm(sec) { sec = Math.max(0, Math.round(sec)); const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60); if (sec > 0 && sec < 60) return "<1m"; return h ? `${h}h ${pad(m)}m` : `${m}m`; }
+  const dayStart = (t = Date.now()) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const weekStart = () => { const d = new Date(dayStart()); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return d.getTime(); };
+  const tFmt = t => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  function dayLabel(t) {
+    const d0 = dayStart(t), today = dayStart();
+    if (d0 === today) return "Today";
+    if (d0 === today - 864e5) return "Yesterday";
+    return new Date(t).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+  }
+  const money = n => state.settings.currency + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+
+  /* ---------- derived ---------- */
+  const sortedProjects = arch => Object.entries(state.projects)
+    .filter(([, p]) => !!p.archived === arch)
+    .sort((a, b) => (a[1].order ?? 0) - (b[1].order ?? 0));
+  const liveSec = p => p.runningSince ? (Date.now() - p.runningSince) / 1000 : 0;
+  function projectTotals(id) {
+    const t = { all: 0, today: 0, week: 0 }, d = dayStart(), w = weekStart();
+    for (const e of Object.values(state.entries)) {
+      if (e.projectId !== id) continue;
+      t.all += e.seconds || 0;
+      if (e.start >= d) t.today += e.seconds || 0;
+      if (e.start >= w) t.week += e.seconds || 0;
+    }
+    const p = state.projects[id];
+    if (p && p.runningSince) { const s = liveSec(p); t.all += s; t.today += Math.min(s, (Date.now() - d) / 1000); t.week += s; }
+    return t;
+  }
+
+  /* ---------- store adapter ---------- */
+  const store = {
+    mode: "pending", db: null,
+    async put(col, id, data) {
+      if (col === "settings") state.settings = { ...state.settings, ...data };
+      else state[col][id] = data;
+      render();
+      if (this.mode === "db") {
+        try { await this.db.doc(`${col}/${id}`).set(data); }
+        catch (e) { failed(e); }
+      } else saveLocal();
+    },
+    async del(col, id) {
+      delete state[col][id];
+      render();
+      if (this.mode === "db") {
+        try { await this.db.doc(`${col}/${id}`).delete(); }
+        catch (e) { failed(e); }
+      } else saveLocal();
+    }
+  };
+  function failed(e) {
+    const code = e && e.code;
+    if (code === "quota_exceeded") toast("Storage is full. Delete old log entries to keep logging.");
+    else if (code === "invalid_argument") toast("Only the owner of this page can change it.");
+    else toast("Couldn't save that change. Check your connection and try again.");
+  }
+  function saveLocal() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ projects: state.projects, entries: state.entries, settings: state.settings })); } catch (_) {}
+  }
+  function startLocal(reason) {
+    store.mode = "local";
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (_) {}
+    if (saved) {
+      state.projects = saved.projects || {}; state.entries = saved.entries || {};
+      state.settings = { ...state.settings, ...(saved.settings || {}) };
+    } else {
+      ["Project one", "Project two", "Project three"].forEach((name, i) => {
+        state.projects[uid()] = newProject(name, i);
+      });
+      saveLocal();
+    }
+    state.ready = true;
+    setNote(reason, "warn");
+    render();
+  }
+  function startDb(db) {
+    store.mode = "db"; store.db = db;
+    let got = { projects: false, entries: false }, timer = setTimeout(() => setNote("Can't reach your saved data yet. Changes may not be saved.", "warn"), 10000);
+    const done = () => { if (got.projects && got.entries) { clearTimeout(timer); state.ready = true; setNote("Saved to this page. Only you can see it."); render(); } };
+    const err = e => { clearTimeout(timer); setNote("Lost the connection to your saved data. Reload the page to reconnect.", "warn"); };
+    for (const col of ["projects", "entries"]) {
+      db.collection(col).onSnapshot(snap => {
+        const next = {};
+        snap.docs.forEach(d => { next[d.id] = d.data(); });
+        state[col] = next;
+        if (!snap.metadata.fromCache) got[col] = true;
+        done(); render();
+      }, err);
+    }
+    db.doc("settings/main").onSnapshot(s => { if (s.exists) state.settings = { ...state.settings, ...s.data() }; render(); }, () => {});
+  }
+  function newProject(name, order) {
+    const used = new Set(Object.values(state.projects).map(p => p.color));
+    const color = COLORS.find(c => !used.has(c)) || COLORS[order % COLORS.length];
+    return { name, color, order, archived: false, runningSince: null, rate: null, createdAt: Date.now() };
+  }
+
+  /* ---------- actions ---------- */
+  async function start(id) {
+    const p = state.projects[id];
+    if (!p || p.runningSince) return;
+    if (state.settings.single) {
+      for (const [oid, op] of sortedProjects(false)) if (op.runningSince) await stop(oid);
+    }
+    await store.put("projects", id, { ...p, runningSince: Date.now() });
+  }
+  async function stop(id) {
+    const p = state.projects[id];
+    if (!p || !p.runningSince) return;
+    const end = Date.now(), start = p.runningSince;
+    const entryId = uid();
+    const entry = { projectId: id, start, end, seconds: Math.round((end - start) / 1000), note: "", tag: "" };
+    // Save the time straight away; the prompt only adds the label.
+    await store.put("projects", id, { ...p, runningSince: null });
+    await store.put("entries", entryId, entry);
+    ui.queue.push(entryId);
+    if (!ui.modal) openNext();
+  }
+  const toggle = id => (state.projects[id] && state.projects[id].runningSince ? stop(id) : start(id));
+
+  function addProject() {
+    const n = sortedProjects(false).length + sortedProjects(true).length;
+    const id = uid();
+    store.put("projects", id, newProject(`Project ${n + 1}`, Date.now()));
+    ui.editingName = id; ui.nameDraft = ""; ui.selectAll = true; render();
+  }
+  function commitName(id) {
+    const p = state.projects[id], v = ui.nameDraft.trim();
+    ui.editingName = null;
+    if (p && v && v !== p.name) store.put("projects", id, { ...p, name: v }); else render();
+  }
+
+  /* ---------- rendering ---------- */
+  function render() {
+    ui.rendering = true; // a re-render removes the focused name input; ignore the blur that causes
+    try { renderTotals(); renderGrid(); renderArchived(); renderFilters(); renderLog(); }
+    finally { ui.rendering = false; }
+    $("#single").checked = !!state.settings.single;
+  }
+  function renderTotals() {
+    let today = 0, week = 0, running = 0;
+    for (const [id, p] of Object.entries(state.projects)) {
+      const t = projectTotals(id); today += t.today; week += t.week; if (p.runningSince) running++;
+    }
+    const box = $("#totals"); box.replaceChildren(
+      el("div", {}, el("span", { class: "label", text: "Today" }), el("span", { class: "num", "data-tick": "today", text: hm(today) })),
+      el("div", {}, el("span", { class: "label", text: "This week" }), el("span", { class: "num", "data-tick": "week", text: hm(week) })),
+      el("div", {}, el("span", { class: "label", text: "Running" }), el("span", { class: "num", text: String(running) }))
+    );
+  }
+  function renderGrid() {
+    const grid = $("#grid"), list = sortedProjects(false);
+    const kids = list.map(([id, p], i) => card(id, p, i));
+    kids.push(el("button", { class: "add-tile", type: "button", onclick: addProject },
+      el("span", { class: "plus", text: "+" }), el("span", { text: "Add project" })));
+    grid.replaceChildren(...kids);
+    if (ui.editingName) { const inp = $(`#name-${ui.editingName}`); if (inp) { inp.focus(); if (ui.selectAll) { inp.select(); ui.selectAll = false; } } }
+  }
+  function card(id, p, i) {
+    const t = projectTotals(id), run = !!p.runningSince, s = liveSec(p);
+    const c = el("article", { class: "card" + (run ? " running" : ""), style: `--pc: var(--c-${p.color || "cobalt"})`, "data-id": id });
+    const nameEl = ui.editingName === id
+      ? el("input", { class: "pname-input", id: `name-${id}`, value: ui.nameDraft || p.name, "aria-label": "Project name", maxlength: "60",
+          oninput: e => { ui.nameDraft = e.target.value; },
+          onkeydown: e => { if (e.key === "Enter") commitName(id); if (e.key === "Escape") { ui.editingName = null; render(); } },
+          onblur: () => { if (!ui.rendering) commitName(id); } })
+      : el("button", { class: "pname", type: "button", title: "Rename", text: p.name,
+          onclick: () => { ui.editingName = id; ui.nameDraft = p.name; ui.menuFor = null; render(); } });
+    c.append(el("div", { class: "card-head" },
+      el("span", { class: "dot", "aria-hidden": "true" }), nameEl,
+      i < 9 ? el("span", { class: "key", title: `Press ${i + 1} to start or stop`, text: String(i + 1) }) : null,
+      el("button", { class: "menu-btn", type: "button", "aria-label": `Options for ${p.name}`, "aria-expanded": String(ui.menuFor === id),
+        onclick: () => { ui.menuFor = ui.menuFor === id ? null : id; render(); } }, "⋯")));
+    c.append(el("div", { class: "session" },
+      el("span", { class: "label", text: run ? `Running since ${tFmt(p.runningSince)}` : "This session" }),
+      el("span", { class: "big num", "data-tick": `s-${id}`, text: clock(s) })));
+    if (run && s > LONG_RUN) c.append(el("div", { class: "long", text: `Running for ${hm(s)}. Still working on this?` }));
+    const stats = el("div", { class: "stats" },
+      el("div", {}, el("span", { class: "label", text: "Today" }), el("span", { class: "num", "data-tick": `d-${id}`, text: hm(t.today) })),
+      el("div", {}, el("span", { class: "label", text: "Week" }), el("span", { class: "num", "data-tick": `w-${id}`, text: hm(t.week) })),
+      el("div", {}, el("span", { class: "label", text: p.rate ? "Total · earned" : "Total" }),
+        el("span", { class: "num", "data-tick": `a-${id}`, text: hm(t.all) + (p.rate ? ` · ${money(t.all / 3600 * p.rate)}` : "") })));
+    c.append(stats);
+    c.append(el("button", { class: "toggle", type: "button", "aria-pressed": String(run), onclick: () => toggle(id) },
+      el("span", { class: "ico " + (run ? "stop" : "play"), "aria-hidden": "true" }), run ? "Stop & log" : "Start"));
+    if (ui.menuFor === id) c.append(menu(id, p));
+    return c;
+  }
+  function menu(id, p) {
+    const pop = el("div", { class: "pop", role: "dialog", "aria-label": `${p.name} options` });
+    pop.append(el("span", { class: "label", text: "Color" }),
+      el("div", { class: "swatches" }, COLORS.map(col => el("button", { class: "sw", type: "button", style: `background: var(--c-${col})`,
+        "aria-label": col, "aria-pressed": String(p.color === col), onclick: () => store.put("projects", id, { ...p, color: col }) }))));
+    const rate = el("input", { id: `rate-${id}`, type: "number", min: "0", step: "1", inputmode: "decimal", placeholder: "Optional", value: p.rate ?? "" });
+    pop.append(el("label", { class: "field", for: `rate-${id}` }, el("span", { class: "label", text: `Hourly rate (${state.settings.currency})` }), rate));
+    rate.addEventListener("change", () => { const v = parseFloat(rate.value); store.put("projects", id, { ...p, rate: v > 0 ? v : null }); });
+    const order = sortedProjects(false), idx = order.findIndex(([k]) => k === id);
+    const swap = dir => {
+      const other = order[idx + dir]; if (!other) return;
+      const a = p.order ?? idx, b = other[1].order ?? idx + dir;
+      store.put("projects", id, { ...p, order: b === a ? a + dir : b });
+      store.put("projects", other[0], { ...other[1], order: a });
+    };
+    pop.append(el("div", { class: "row" },
+      el("button", { class: "btn small", type: "button", disabled: idx === 0, onclick: () => swap(-1) }, "← Move"),
+      el("button", { class: "btn small", type: "button", disabled: idx === order.length - 1, onclick: () => swap(1) }, "Move →")));
+    pop.append(el("div", { class: "row" },
+      el("button", { class: "btn small", type: "button", onclick: async () => {
+        ui.menuFor = null;
+        if (p.runningSince) await stop(id);
+        const cur = state.projects[id];
+        store.put("projects", id, { ...cur, archived: true });
+        toast(`Archived “${p.name}”. Its log entries stay in the log.`);
+      } }, "Archive project"),
+      el("button", { class: "btn small ghost", type: "button", onclick: () => { ui.menuFor = null; render(); } }, "Close")));
+    return pop;
+  }
+  function renderArchived() {
+    const list = sortedProjects(true), box = $("#archived");
+    box.hidden = !list.length;
+    $("#archSummary").textContent = `Archived projects (${list.length})`;
+    $("#archList").replaceChildren(...list.map(([id, p]) => {
+      const t = projectTotals(id);
+      const confirming = ui.confirmDel === id;
+      return el("div", { class: "arch-row", style: `--pc: var(--c-${p.color})` },
+        el("span", { class: "dot" }), el("span", { class: "grow", text: p.name }),
+        el("span", { class: "num", text: hm(t.all) }),
+        confirming
+          ? el("span", { class: "row" }, "Delete project and its log? ",
+              el("button", { class: "btn small danger", type: "button", onclick: () => deleteProject(id) }, "Delete"),
+              el("button", { class: "btn small ghost", type: "button", onclick: () => { ui.confirmDel = null; render(); } }, "Cancel"))
+          : el("span", { class: "row" },
+              el("button", { class: "btn small", type: "button", onclick: () => store.put("projects", id, { ...p, archived: false, order: Date.now() }) }, "Restore"),
+              el("button", { class: "btn small ghost danger", type: "button", onclick: () => { ui.confirmDel = id; render(); } }, "Delete…")));
+    }));
+  }
+  async function deleteProject(id) {
+    ui.confirmDel = null;
+    const ids = Object.entries(state.entries).filter(([, e]) => e.projectId === id).map(([k]) => k);
+    for (const k of ids) await store.del("entries", k);
+    await store.del("projects", id);
+    if (ui.filter === id) ui.filter = "all";
+    toast("Project deleted.");
+  }
+  function renderFilters() {
+    const projs = [...sortedProjects(false), ...sortedProjects(true)].filter(([id]) => Object.values(state.entries).some(e => e.projectId === id));
+    const box = $("#filters");
+    if (projs.length < 2) { box.replaceChildren(); return; }
+    box.replaceChildren(
+      el("button", { class: "chip", type: "button", "aria-pressed": String(ui.filter === "all"), onclick: () => { ui.filter = "all"; render(); } }, "All projects"),
+      ...projs.map(([id, p]) => el("button", { class: "chip", type: "button", style: `--pc: var(--c-${p.color})`, "aria-pressed": String(ui.filter === id),
+        onclick: () => { ui.filter = id; render(); } }, el("span", { class: "dot" }), p.name)));
+  }
+  function renderLog() {
+    const box = $("#log");
+    if (!state.ready) { box.replaceChildren(el("div", { class: "empty", text: "Loading your log…" })); return; }
+    const list = Object.entries(state.entries)
+      .filter(([, e]) => ui.filter === "all" || e.projectId === ui.filter)
+      .sort((a, b) => b[1].start - a[1].start);
+    if (!list.length) {
+      box.replaceChildren(el("div", { class: "empty", text: "Nothing logged yet. Start a project’s clock above. When you stop it, you’ll be asked what you worked on, and it will appear here." }));
+      return;
+    }
+    const out = []; let cur = null, group = null;
+    for (const [id, e] of list.slice(0, 400)) {
+      const d = dayStart(e.start);
+      if (d !== cur) {
+        cur = d;
+        const sum = list.filter(([, x]) => dayStart(x.start) === d).reduce((a, [, x]) => a + (x.seconds || 0), 0);
+        out.push(el("div", { class: "day" }, el("span", { text: dayLabel(e.start) }), el("span", { class: "num", text: hm(sum) })));
+      }
+      const p = state.projects[e.projectId] || { name: "Deleted project", color: "cobalt" };
+      out.push(el("div", { class: "entry", style: `--pc: var(--c-${p.color})` },
+        el("span", { class: "when num", text: `${tFmt(e.start)}–${tFmt(e.end)}` }),
+        el("div", { class: "what" },
+          el("span", { class: "note" + (e.note ? "" : " missing"), text: e.note || "Needs a label" }),
+          el("span", { class: "meta" }, el("span", { class: "dot" }), p.name, e.tag ? el("span", { class: "tag", text: e.tag }) : null)),
+        el("span", { class: "dur num", text: hm(e.seconds) }),
+        el("span", { class: "acts" }, el("button", { class: "btn small ghost", type: "button", onclick: () => openEntry(id) }, "Edit"))));
+    }
+    box.replaceChildren(...out);
+  }
+
+  /* ---------- ticker: updates only the numbers, never the inputs ---------- */
+  setInterval(() => {
+    if (!state.ready) return;
+    const anyRunning = Object.values(state.projects).some(p => p.runningSince);
+    if (!anyRunning) return;
+    let today = 0, week = 0;
+    for (const [id, p] of Object.entries(state.projects)) {
+      const t = projectTotals(id); today += t.today; week += t.week;
+      if (!p.runningSince || p.archived) continue;
+      const set = (k, v) => { const n = document.querySelector(`[data-tick="${k}"]`); if (n) n.textContent = v; };
+      set(`s-${id}`, clock(liveSec(p))); set(`d-${id}`, hm(t.today)); set(`w-${id}`, hm(t.week));
+      set(`a-${id}`, hm(t.all) + (p.rate ? ` · ${money(t.all / 3600 * p.rate)}` : ""));
+      if (liveSec(p) > LONG_RUN && !document.querySelector(`[data-id="${id}"] .long`) && !ui.editingName && !ui.menuFor) renderGrid();
+    }
+    const tn = $('[data-tick="today"]'), wn = $('[data-tick="week"]');
+    if (tn) tn.textContent = hm(today); if (wn) wn.textContent = hm(week);
+    document.title = anyRunning ? `● ${hm(Object.values(state.projects).reduce((a, p) => Math.max(a, liveSec(p)), 0))} · Studio Time Card` : "Studio Time Card";
+  }, 1000);
+
+  /* ---------- log dialog (after stop, edit, manual) ---------- */
+  function openNext() {
+    while (ui.queue.length && !state.entries[ui.queue[0]]) ui.queue.shift();
+    if (!ui.queue.length) return;
+    openEntry(ui.queue[0], { afterStop: true });
+  }
+  function closeModal() {
+    $("#modalRoot").replaceChildren(); ui.modal = null;
+    if (ui.queue.length) setTimeout(openNext, 60);
+  }
+  function openEntry(entryId, { afterStop = false, manual = null } = {}) {
+    const e = manual || state.entries[entryId]; if (!e) return;
+    let projectId = e.projectId;
+    const p = () => state.projects[projectId] || { name: "Project", color: "cobalt" };
+    ui.modal = entryId;
+    const h0 = Math.floor(e.seconds / 3600), m0 = Math.round((e.seconds % 3600) / 60);
+    const hrs = el("input", { id: "durH", type: "number", min: "0", value: String(h0), inputmode: "numeric", "aria-label": "Hours" });
+    const mins = el("input", { id: "durM", type: "number", min: "0", max: "59", value: String(m0), inputmode: "numeric", "aria-label": "Minutes" });
+    const note = el("textarea", { id: "noteText", placeholder: "e.g. Homepage hero layout, two options for review", maxlength: "500" });
+    note.value = e.note || "";
+    let tag = e.tag || "";
+    const tagBox = el("div", { class: "chips" });
+    const drawTags = () => tagBox.replaceChildren(...TAGS.map(t => el("button", { class: "chip", type: "button", "aria-pressed": String(tag === t),
+      onclick: () => { tag = tag === t ? "" : t; drawTags(); } }, t)));
+    drawTags();
+    const durLabel = el("span", { class: "num" });
+    const band = el("div", { class: "band" });
+    const dialog = el("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "dlgTitle" });
+    const paint = () => {
+      dialog.style.setProperty("--pc", `var(--c-${p().color})`);
+      durLabel.textContent = hm((+hrs.value || 0) * 3600 + (+mins.value || 0) * 60);
+      band.replaceChildren(el("div", {},
+        el("div", { class: "queue", text: afterStop ? (ui.queue.length > 1 ? `Stopped · ${ui.queue.length - 1} more to log after this` : "Stopped") : manual ? "Add time" : "Edit entry" }),
+        el("h3", { id: "dlgTitle", text: p().name })), durLabel);
+    };
+    hrs.addEventListener("input", paint); mins.addEventListener("input", paint);
+
+    let projPick = null;
+    if (manual) {
+      const opts = sortedProjects(false);
+      projPick = el("select", { id: "projPick" }, opts.map(([id, pp]) => el("option", { value: id, selected: id === projectId }, pp.name)));
+      projPick.addEventListener("change", () => { projectId = projPick.value; paint(); });
+    }
+    const dateIn = manual ? el("input", { id: "manDate", type: "date", value: new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10) }) : null;
+
+    const save = async () => {
+      const seconds = Math.max(60, (+hrs.value || 0) * 3600 + (+mins.value || 0) * 60);
+      if (manual) {
+        const [y, mo, d] = dateIn.value.split("-").map(Number);
+        const base = new Date(y, mo - 1, d, 12).getTime();
+        const isToday = dayStart(base) === dayStart();
+        const end = isToday ? Date.now() : base + seconds * 500, start = end - seconds * 1000;
+        await store.put("entries", entryId, { projectId, start, end, seconds, note: note.value.trim(), tag, manual: true });
+        toast(`Added ${hm(seconds)} to ${p().name}.`);
+      } else {
+        const cur = state.entries[entryId]; if (!cur) return closeModal();
+        await store.put("entries", entryId, { ...cur, seconds, note: note.value.trim(), tag });
+        if (afterStop) toast(`Logged ${hm(seconds)} on ${p().name}.`);
+      }
+      if (afterStop) ui.queue.shift();
+      closeModal();
+    };
+    const discard = async () => {
+      if (afterStop) ui.queue.shift();
+      if (!manual) {
+        const snapshot = state.entries[entryId];
+        await store.del("entries", entryId);
+        toast(afterStop ? "Discarded that run." : "Entry deleted.", snapshot ? () => store.put("entries", entryId, snapshot) : null);
+      }
+      closeModal();
+    };
+    const later = () => { if (afterStop) ui.queue.shift(); closeModal(); };
+
+    const body = el("form", { class: "body", onsubmit: ev => { ev.preventDefault(); save(); } },
+      manual ? el("div", { class: "dur-edit" },
+        el("label", { class: "field", for: "projPick", style: "flex:1;min-width:140px" }, el("span", { class: "label", text: "Project" }), projPick),
+        el("label", { class: "field", for: "manDate" }, el("span", { class: "label", text: "Date" }), dateIn)) : null,
+      el("label", { class: "field", for: "noteText" }, el("span", { class: "label", text: "What did you work on?" }), note),
+      el("div", { class: "field" }, el("span", { class: "label", text: "Type of work" }), tagBox),
+      el("div", { class: "field" }, el("span", { class: "label", text: "Time to log" }),
+        el("div", { class: "dur-edit" }, hrs, "h", mins, "m",
+          !manual ? el("span", { class: "hint", text: `${tFmt(e.start)}–${tFmt(e.end)}` }) : null)),
+      el("div", { class: "acts" },
+        manual ? null : el("button", { class: "btn ghost danger", type: "button", onclick: discard }, afterStop ? "Discard run" : "Delete"),
+        el("div", { class: "right" },
+          el("button", { class: "btn ghost", type: "button", onclick: manual ? closeModal : later }, manual ? "Cancel" : afterStop ? "Label later" : "Cancel"),
+          el("button", { class: "btn primary", type: "submit" }, manual ? "Add time" : "Log time"))),
+      el("span", { class: "hint", text: "Press ⌘/Ctrl + Enter to save." }));
+    note.addEventListener("keydown", ev => { if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); save(); } });
+    dialog.append(band, body); paint();
+    const scrim = el("div", { class: "scrim", onclick: ev => { if (ev.target === scrim) (manual ? closeModal : later)(); } }, dialog);
+    scrim.addEventListener("keydown", ev => { if (ev.key === "Escape") (manual ? closeModal : later)(); });
+    $("#modalRoot").replaceChildren(scrim);
+    setTimeout(() => note.focus(), 30);
+  }
+
+  /* ---------- toast ---------- */
+  let toastTimer;
+  function toast(msg, undo) {
+    clearTimeout(toastTimer);
+    const t = el("div", { class: "toast", role: "status" }, el("span", { text: msg }),
+      undo ? el("button", { type: "button", onclick: () => { undo(); $("#toastRoot").replaceChildren(); } }, "Undo") : null);
+    $("#toastRoot").replaceChildren(t);
+    toastTimer = setTimeout(() => $("#toastRoot").replaceChildren(), undo ? 6000 : 3200);
+  }
+  function setNote(text, kind) { const n = $("#storeNote"); n.textContent = text; n.dataset.kind = kind || ""; }
+
+  /* ---------- CSV ---------- */
+  async function exportCsv() {
+    const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = [["Date", "Start", "End", "Project", "Work type", "Description", "Hours", "Rate", "Amount"]];
+    Object.values(state.entries).sort((a, b) => a.start - b.start).forEach(e => {
+      const p = state.projects[e.projectId] || {}, hrs = (e.seconds || 0) / 3600;
+      const d = new Date(e.start);
+      rows.push([`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, tFmt(e.start), tFmt(e.end), p.name || "", e.tag || "", e.note || "",
+        hrs.toFixed(2), p.rate || "", p.rate ? (hrs * p.rate).toFixed(2) : ""]);
+    });
+    const csv = rows.map(r => r.map(q).join(",")).join("\n");
+    const name = `time-log-${new Date().toISOString().slice(0, 10)}.csv`;
+    const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
+    if (dl) {
+      try { await dl.save({ filename: name, data: new Blob([csv], { type: "text/csv" }) }); return; }
+      catch (err) { if (err && err.code === "declined") return; }
+    }
+    try { await navigator.clipboard.writeText(csv); toast("Copied the log as CSV. Paste it into a spreadsheet."); }
+    catch (_) { toast("Couldn't export here. Open the page in claude.ai to download the CSV."); }
+  }
+
+  /* ---------- wiring ---------- */
+  $("#single").addEventListener("change", e => store.put("settings", "main", { ...state.settings, single: e.target.checked }));
+  $("#addManual").addEventListener("click", () => {
+    const first = sortedProjects(false)[0];
+    if (!first) { toast("Add a project first."); return; }
+    openEntry(uid(), { manual: { projectId: ui.filter !== "all" && state.projects[ui.filter] && !state.projects[ui.filter].archived ? ui.filter : first[0], seconds: 3600, note: "", tag: "" } });
+  });
+  $("#exportCsv").addEventListener("click", exportCsv);
+  document.addEventListener("keydown", e => {
+    if (ui.modal || ui.editingName || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.key === "Escape" && ui.menuFor) { ui.menuFor = null; render(); return; }
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= 9) { const pr = sortedProjects(false)[n - 1]; if (pr) { e.preventDefault(); toggle(pr[0]); } }
+  });
+  document.addEventListener("click", e => {
+    if (ui.menuFor && !e.target.closest(".pop") && !e.target.closest(".menu-btn")) { ui.menuFor = null; render(); }
+  });
+
+  render();
+  (async () => {
+    const db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+    if (db) startDb(db);
+    else startLocal("Saving in this browser only. Open the page in claude.ai, signed in, to keep it everywhere.");
+  })();
+})();
+</script>
