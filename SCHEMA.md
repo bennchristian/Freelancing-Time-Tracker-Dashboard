@@ -1,6 +1,6 @@
 # SCHEMA — Freelance Time Tracker
 
-Artifact `db` store (JSON documents). Collections below; the field contracts are fixed. Add
+Artifact `db` store (JSON documents). In the UI, `projects` are **clients** and `sub` is a **project**. Collections below; the field contracts are fixed. Add
 new fields at the end.
 
 ## projects/{id}
@@ -17,6 +17,7 @@ new fields at the end.
 | sub | string | selected sub-project, "" for none |
 | sessionStart | number \| null | epoch ms the current session began (running or paused) |
 | banked | number | seconds logged before the last pause |
+| bufferDays | number | default review buffer for new deadlines (working days) |
 
 ## entries/{id}
 | field | type | notes |
@@ -28,6 +29,19 @@ new fields at the end.
 | note | string | "" means needs a label |
 | tag | string | optional work type |
 | sub | string | sub-project, "" for none |
+
+## deadlines/{id}
+| field | type | notes |
+|---|---|---|
+| projectId | string | → projects/{id} (the client) |
+| sub | string | project, "" for any |
+| title | string | what's due |
+| due | string | go-live date, `YYYY-MM-DD` |
+| bufferDays | number | working days before `due` to send for review |
+| estimateSec | number \| null | estimate |
+| createdAt | number | epoch ms; time counts from the start of this day |
+| doneAt | number \| null | epoch ms when marked done |
+| actualSec | number \| null | time logged when marked done; feeds the suggested estimate |
 
 ## settings/main
 | field | type | notes |

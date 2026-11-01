@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>Studio Time Card</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -212,12 +213,28 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   .entry .acts { grid-column: 1 / -1; justify-self: start; }
 }
 
+/* deadlines */
+.dl { grid-template-columns: minmax(0, 1fr) 140px auto; }
+.dl .send { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-weight: 600; font-size: 14px; }
+.pill { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 1px 8px; background: var(--sunk); color: var(--muted); border: 1px solid transparent; }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.bad { background: transparent; color: var(--danger); border-color: var(--danger); }
+.prog { display: grid; gap: 5px; font-size: 13px; text-align: right; }
+.bar { height: 5px; border-radius: 5px; background: var(--sunk); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--pc); }
+.bar.over span { background: var(--warn); }
+.dl .acts { display: flex; gap: 4px; flex-wrap: wrap; justify-content: end; }
+@media (max-width: 560px) {
+  .dl { grid-template-columns: minmax(0, 1fr) auto; }
+  .dl .acts { grid-column: 1 / -1; justify-self: start; justify-content: start; }
+}
+
 /* dialog */
 .scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 20; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
 .dialog { --pc: var(--c-cobalt); width: min(480px, 100%); max-height: 100%; overflow: auto; background: var(--surface); border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
 .dialog .band { background: var(--pc); color: var(--on-color); padding: 16px 20px; display: flex; justify-content: space-between; align-items: end; gap: 10px; border-radius: 18px 18px 0 0; }
 .dialog .band h3 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
-.dialog .band .num { font-size: 26px; }
+.dialog .band .num { font-size: 26px; white-space: nowrap; }
 .dialog .body { padding: 18px 20px 20px; display: grid; gap: 14px; }
 .dialog textarea { min-height: 84px; resize: vertical; }
 .dur-edit { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -236,21 +253,33 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   <header class="top">
     <div>
       <h1>Studio Time Card</h1>
-      <p class="sub">Pick a sub-project, then start the clock. Pause for breaks. Stop to log it.</p>
+      <p class="sub">Pick a project, then start the clock. Pause for breaks. Stop to log it.</p>
     </div>
     <div class="totals" id="totals" aria-live="off"></div>
   </header>
 
   <div class="toolbar">
     <label class="switch" for="single"><input type="checkbox" id="single"> One timer at a time</label>
-    <span class="note-bar" id="storeNote">Loading your projects…</span>
+    <span class="note-bar" id="storeNote">Loading your clients…</span>
   </div>
 
+  <section aria-labelledby="dlHead">
+    <div class="sec-head">
+      <h2 id="dlHead">Deadlines</h2>
+      <button class="btn small" id="addDeadline" type="button">+ Deadline</button>
+    </div>
+    <div class="log" id="deadlines"></div>
+    <details class="archived" id="dlDone" hidden>
+      <summary id="dlDoneSummary">Done</summary>
+      <div id="dlDoneList"></div>
+    </details>
+  </section>
+
   <section aria-labelledby="projHead">
-    <h2 id="projHead" class="sr">Projects</h2>
+    <h2 id="projHead" class="sr">Clients</h2>
     <div class="grid" id="grid"></div>
     <details class="archived" id="archived" hidden>
-      <summary id="archSummary">Archived projects</summary>
+      <summary id="archSummary">Archived clients</summary>
       <div id="archList"></div>
     </details>
   </section>
@@ -279,7 +308,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   const LS_KEY = "ftt-v1";
 
   /* ---------- state ---------- */
-  const state = { projects: {}, entries: {}, settings: { single: false, currency: "$" }, ready: false };
+  const state = { projects: {}, entries: {}, deadlines: {}, settings: { single: false, currency: "$" }, ready: false };
   const ui = { addingSub: null, subDraft: "", editingName: null, nameDraft: "", menuFor: null, filter: "all", queue: [], modal: null, confirmDel: null };
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -311,6 +340,15 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     if (d0 === today - 864e5) return "Yesterday";
     return new Date(t).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
   }
+  const parseDay = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).getTime(); };
+  const isoDay = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const dFmt = t => new Date(t).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  // Steps back n working days (Mon–Fri) from the go-live date.
+  function sendBy(due, n) {
+    const d = new Date(parseDay(due));
+    for (let i = 0; i < n;) { d.setDate(d.getDate() - 1); if (d.getDay() % 6) i++; }
+    return d.getTime();
+  }
   const money = n => state.settings.currency + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
 
   /* ---------- derived ---------- */
@@ -331,6 +369,23 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     const p = state.projects[id];
     if (p && isActive(p)) { const s = liveSec(p); t.all += s; t.today += Math.min(s, (Date.now() - d) / 1000); t.week += s; }
     return t;
+  }
+
+  // Time on a deadline: entries for its client (and project, if set) from the day it was added until it was marked done.
+  function deadlineSec(dl) {
+    const from = dayStart(dl.createdAt), until = dl.doneAt || Infinity;
+    const match = (pid, sub) => pid === dl.projectId && (!dl.sub || sub === dl.sub);
+    let s = 0;
+    for (const e of Object.values(state.entries)) if (match(e.projectId, e.sub) && e.start >= from && e.start <= until) s += e.seconds || 0;
+    const p = state.projects[dl.projectId];
+    if (!dl.doneAt && p && isActive(p) && match(dl.projectId, p.sub)) s += liveSec(p);
+    return s;
+  }
+  const dlProgress = dl => dl.estimateSec ? `${hm(deadlineSec(dl))} of ${hm(dl.estimateSec)}` : `${hm(deadlineSec(dl))} logged`;
+  // Average time that finished deadlines for the same client and project actually took.
+  function pastEstimate(projectId, sub, skipId) {
+    const done = Object.entries(state.deadlines).filter(([k, d]) => k !== skipId && d.doneAt && d.actualSec > 0 && d.projectId === projectId && (d.sub || "") === (sub || ""));
+    return done.length ? { avg: done.reduce((a, [, d]) => a + d.actualSec, 0) / done.length, n: done.length } : null;
   }
 
   /* ---------- store adapter ---------- */
@@ -361,17 +416,17 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     else toast("Couldn't save that change. Check your connection and try again.");
   }
   function saveLocal() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ projects: state.projects, entries: state.entries, settings: state.settings })); } catch (_) {}
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ projects: state.projects, entries: state.entries, deadlines: state.deadlines, settings: state.settings })); } catch (_) {}
   }
   function startLocal(reason) {
     store.mode = "local";
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (_) {}
     if (saved) {
-      state.projects = saved.projects || {}; state.entries = saved.entries || {};
+      state.projects = saved.projects || {}; state.entries = saved.entries || {}; state.deadlines = saved.deadlines || {};
       state.settings = { ...state.settings, ...(saved.settings || {}) };
     } else {
-      ["Project one", "Project two", "Project three"].forEach((name, i) => {
+      ["Client one", "Client two", "Client three"].forEach((name, i) => {
         state.projects[uid()] = newProject(name, i);
       });
       saveLocal();
@@ -382,10 +437,10 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   }
   function startDb(db) {
     store.mode = "db"; store.db = db;
-    let got = { projects: false, entries: false }, timer = setTimeout(() => setNote("Can't reach your saved data yet. Changes may not be saved.", "warn"), 10000);
-    const done = () => { if (got.projects && got.entries) { clearTimeout(timer); state.ready = true; setNote("Saved to this page. Only you can see it."); render(); } };
+    let got = { projects: false, entries: false, deadlines: false }, timer = setTimeout(() => setNote("Can't reach your saved data yet. Changes may not be saved.", "warn"), 10000);
+    const done = () => { if (got.projects && got.entries && got.deadlines) { clearTimeout(timer); state.ready = true; setNote("Saved to this page. Only you can see it."); render(); } };
     const err = e => { clearTimeout(timer); setNote("Lost the connection to your saved data. Reload the page to reconnect.", "warn"); };
-    for (const col of ["projects", "entries"]) {
+    for (const col of ["projects", "entries", "deadlines"]) {
       db.collection(col).onSnapshot(snap => {
         const next = {};
         snap.docs.forEach(d => { next[d.id] = d.data(); });
@@ -456,10 +511,27 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     pickSub(id, v);
   }
 
+  async function startDeadline(id) {
+    const d = state.deadlines[id], p = d && state.projects[d.projectId]; if (!p) return;
+    if ((p.sub || "") !== (d.sub || "")) await pickSub(d.projectId, d.sub || p.sub);
+    await start(d.projectId);
+  }
+  function finishDeadline(id) {
+    const d = state.deadlines[id]; if (!d) return;
+    const actualSec = Math.round(deadlineSec(d));
+    store.put("deadlines", id, { ...d, doneAt: Date.now(), actualSec });
+    toast(`Done. “${d.title}” took ${hm(actualSec)}.`, () => store.put("deadlines", id, d));
+  }
+  function removeDeadline(id) {
+    const d = state.deadlines[id]; if (!d) return;
+    store.del("deadlines", id);
+    toast("Deadline deleted.", () => store.put("deadlines", id, d));
+  }
+
   function addProject() {
     const n = sortedProjects(false).length + sortedProjects(true).length;
     const id = uid();
-    store.put("projects", id, newProject(`Project ${n + 1}`, Date.now()));
+    store.put("projects", id, newProject(`Client ${n + 1}`, Date.now()));
     ui.editingName = id; ui.nameDraft = ""; ui.selectAll = true; render();
   }
   function commitName(id) {
@@ -471,7 +543,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   /* ---------- rendering ---------- */
   function render() {
     ui.rendering = true; // a re-render removes the focused name input; ignore the blur that causes
-    try { renderTotals(); renderGrid(); renderArchived(); renderFilters(); renderLog(); }
+    try { renderTotals(); renderDeadlines(); renderGrid(); renderArchived(); renderFilters(); renderLog(); }
     finally { ui.rendering = false; }
     $("#single").checked = !!state.settings.single;
   }
@@ -486,11 +558,52 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       el("div", {}, el("span", { class: "label", text: "Running" }), el("span", { class: "num", text: String(running) }))
     );
   }
+  function renderDeadlines() {
+    const box = $("#deadlines");
+    if (!state.ready) { box.replaceChildren(el("div", { class: "empty", text: "Loading your deadlines…" })); return; }
+    const all = Object.entries(state.deadlines).filter(([, d]) => state.projects[d.projectId] && !state.projects[d.projectId].archived);
+    const by = d => sendBy(d.due, d.bufferDays || 0);
+    const open = all.filter(([, d]) => !d.doneAt).sort((a, b) => by(a[1]) - by(b[1]));
+    const done = all.filter(([, d]) => d.doneAt).sort((a, b) => b[1].doneAt - a[1].doneAt);
+    box.replaceChildren(...(open.length ? open.map(([id, d]) => deadlineRow(id, d))
+      : [el("div", { class: "empty", text: "No deadlines yet. Add one to see when it needs to go out for review." })]));
+    $("#dlDone").hidden = !done.length;
+    $("#dlDoneSummary").textContent = `Done (${done.length})`;
+    $("#dlDoneList").replaceChildren(...done.map(([id, d]) => {
+      const p = state.projects[d.projectId];
+      return el("div", { class: "arch-row", style: `--pc: var(--c-${p.color})` },
+        el("span", { class: "dot" }), el("span", { class: "grow", text: `${d.title} · ${p.name}${d.sub ? ` · ${d.sub}` : ""}` }),
+        el("span", { class: "num", text: d.estimateSec ? `${hm(d.actualSec)} of ${hm(d.estimateSec)}` : hm(d.actualSec) }),
+        el("span", { class: "row" },
+          el("button", { class: "btn small", type: "button", onclick: () => store.put("deadlines", id, { ...d, doneAt: null, actualSec: null }) }, "Reopen"),
+          el("button", { class: "btn small ghost danger", type: "button", onclick: () => removeDeadline(id) }, "Delete")));
+    }));
+  }
+  function deadlineRow(id, d) {
+    const p = state.projects[d.projectId], by = sendBy(d.due, d.bufferDays || 0);
+    const days = Math.round((dayStart(by) - dayStart()) / 864e5);
+    const verb = d.bufferDays ? "Send" : "Due";
+    const [status, kind] = days < 0 ? ["Overdue", "bad"] : days === 0 ? [`${verb} today`, "warn"] : days === 1 ? [`${verb} tomorrow`, "warn"] : [`In ${days} days`, ""];
+    const sec = deadlineSec(d), est = d.estimateSec;
+    const running = p.runningSince && (!d.sub || p.sub === d.sub);
+    return el("div", { class: "entry dl", style: `--pc: var(--c-${p.color})` },
+      el("div", { class: "what" },
+        el("span", { class: "note", text: d.title }),
+        el("span", { class: "send" }, d.bufferDays ? `Send for review by ${dFmt(by)}` : `Due ${dFmt(by)}`, el("span", { class: "pill " + kind, text: status })),
+        el("span", { class: "meta" }, el("span", { class: "dot" }), p.name + (d.sub ? ` · ${d.sub}` : "") + (d.bufferDays ? ` · Goes live ${dFmt(parseDay(d.due))}` : ""))),
+      el("div", { class: "prog" },
+        el("span", { class: "num", "data-tick": `dl-${id}`, text: dlProgress(d) }),
+        est ? el("span", { class: "bar" + (sec > est ? " over" : "") }, el("span", { style: `width: ${Math.min(100, sec / est * 100)}%` })) : null),
+      el("span", { class: "acts" },
+        el("button", { class: "btn small", type: "button", disabled: running, onclick: () => startDeadline(id) }, running ? "Running" : "Start"),
+        el("button", { class: "btn small", type: "button", onclick: () => finishDeadline(id) }, "Done"),
+        el("button", { class: "btn small ghost", type: "button", onclick: () => openDeadline(id) }, "Edit")));
+  }
   function renderGrid() {
     const grid = $("#grid"), list = sortedProjects(false);
     const kids = list.map(([id, p], i) => card(id, p, i));
     kids.push(el("button", { class: "add-tile", type: "button", onclick: addProject },
-      el("span", { class: "plus", text: "+" }), el("span", { text: "Add project" })));
+      el("span", { class: "plus", text: "+" }), el("span", { text: "Add client" })));
     grid.replaceChildren(...kids);
     if (ui.editingName) { const inp = $(`#name-${ui.editingName}`); if (inp) { inp.focus(); if (ui.selectAll) { inp.select(); ui.selectAll = false; } } }
     else if (ui.addingSub) { const inp = $(`#sub-${ui.addingSub}`); if (inp) inp.focus(); }
@@ -499,7 +612,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     const t = projectTotals(id), run = !!p.runningSince, paused = !run && !!p.sessionStart, s = liveSec(p);
     const c = el("article", { class: "card" + (run ? " running" : paused ? " paused" : ""), style: `--pc: var(--c-${p.color || "cobalt"})`, "data-id": id });
     const nameEl = ui.editingName === id
-      ? el("input", { class: "pname-input", id: `name-${id}`, value: ui.nameDraft || p.name, "aria-label": "Project name", maxlength: "60",
+      ? el("input", { class: "pname-input", id: `name-${id}`, value: ui.nameDraft || p.name, "aria-label": "Client name", maxlength: "60",
           oninput: e => { ui.nameDraft = e.target.value; },
           onkeydown: e => { if (e.key === "Enter") commitName(id); if (e.key === "Escape") { ui.editingName = null; render(); } },
           onblur: () => { if (!ui.rendering) commitName(id); } })
@@ -530,14 +643,14 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     return c;
   }
   function subSwitcher(id, p) {
-    const box = el("div", { class: "subs", role: "group", "aria-label": `${p.name} sub-projects` },
+    const box = el("div", { class: "subs", role: "group", "aria-label": `${p.name} projects` },
       (p.subs || []).map(name => el("button", { class: "chip", type: "button", "aria-pressed": String(p.sub === name), onclick: () => pickSub(id, name) }, name)));
     box.append(ui.addingSub === id
-      ? el("input", { class: "sub-input", id: `sub-${id}`, value: ui.subDraft, placeholder: "Sub-project name", "aria-label": "New sub-project name", maxlength: "40",
+      ? el("input", { class: "sub-input", id: `sub-${id}`, value: ui.subDraft, placeholder: "Project name", "aria-label": "New project name", maxlength: "40",
           oninput: e => { ui.subDraft = e.target.value; },
           onkeydown: e => { if (e.key === "Enter") commitSub(id); if (e.key === "Escape") { ui.addingSub = null; render(); } },
           onblur: () => { if (!ui.rendering) commitSub(id); } })
-      : el("button", { class: "chip add", type: "button", onclick: () => { ui.addingSub = id; ui.subDraft = ""; render(); } }, (p.subs || []).length ? "+" : "+ Sub-project"));
+      : el("button", { class: "chip add", type: "button", "aria-label": "Add project", onclick: () => { ui.addingSub = id; ui.subDraft = ""; render(); } }, (p.subs || []).length ? "+" : "+ Project"));
     return box;
   }
   function menu(id, p) {
@@ -548,7 +661,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     const rate = el("input", { id: `rate-${id}`, type: "number", min: "0", step: "1", inputmode: "decimal", placeholder: "Optional", value: p.rate ?? "" });
     pop.append(el("label", { class: "field", for: `rate-${id}` }, el("span", { class: "label", text: `Hourly rate (${state.settings.currency})` }), rate));
     rate.addEventListener("change", () => { const v = parseFloat(rate.value); store.put("projects", id, { ...p, rate: v > 0 ? v : null }); });
-    if ((p.subs || []).length) pop.append(el("span", { class: "label", text: "Remove sub-projects" }),
+    if ((p.subs || []).length) pop.append(el("span", { class: "label", text: "Remove projects" }),
       el("div", { class: "row" }, p.subs.map(name => el("button", { class: "btn small", type: "button", "aria-label": `Remove ${name}`,
         onclick: () => store.put("projects", id, { ...p, subs: p.subs.filter(x => x !== name), sub: p.sub === name && !isActive(p) ? "" : p.sub }) }, `${name} ×`))));
     const order = sortedProjects(false), idx = order.findIndex(([k]) => k === id);
@@ -568,14 +681,14 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
         const cur = state.projects[id];
         store.put("projects", id, { ...cur, archived: true });
         toast(`Archived “${p.name}”. Its log entries stay in the log.`);
-      } }, "Archive project"),
+      } }, "Archive client"),
       el("button", { class: "btn small ghost", type: "button", onclick: () => { ui.menuFor = null; render(); } }, "Close")));
     return pop;
   }
   function renderArchived() {
     const list = sortedProjects(true), box = $("#archived");
     box.hidden = !list.length;
-    $("#archSummary").textContent = `Archived projects (${list.length})`;
+    $("#archSummary").textContent = `Archived clients (${list.length})`;
     $("#archList").replaceChildren(...list.map(([id, p]) => {
       const t = projectTotals(id);
       const confirming = ui.confirmDel === id;
@@ -583,7 +696,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
         el("span", { class: "dot" }), el("span", { class: "grow", text: p.name }),
         el("span", { class: "num", text: hm(t.all) }),
         confirming
-          ? el("span", { class: "row" }, "Delete project and its log? ",
+          ? el("span", { class: "row" }, "Delete this client, its log and its deadlines? ",
               el("button", { class: "btn small danger", type: "button", onclick: () => deleteProject(id) }, "Delete"),
               el("button", { class: "btn small ghost", type: "button", onclick: () => { ui.confirmDel = null; render(); } }, "Cancel"))
           : el("span", { class: "row" },
@@ -595,16 +708,17 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     ui.confirmDel = null;
     const ids = Object.entries(state.entries).filter(([, e]) => e.projectId === id).map(([k]) => k);
     for (const k of ids) await store.del("entries", k);
+    for (const [k, d] of Object.entries(state.deadlines)) if (d.projectId === id) await store.del("deadlines", k);
     await store.del("projects", id);
     if (ui.filter === id) ui.filter = "all";
-    toast("Project deleted.");
+    toast("Client deleted.");
   }
   function renderFilters() {
     const projs = [...sortedProjects(false), ...sortedProjects(true)].filter(([id]) => Object.values(state.entries).some(e => e.projectId === id));
     const box = $("#filters");
     if (projs.length < 2) { box.replaceChildren(); return; }
     box.replaceChildren(
-      el("button", { class: "chip", type: "button", "aria-pressed": String(ui.filter === "all"), onclick: () => { ui.filter = "all"; render(); } }, "All projects"),
+      el("button", { class: "chip", type: "button", "aria-pressed": String(ui.filter === "all"), onclick: () => { ui.filter = "all"; render(); } }, "All clients"),
       ...projs.map(([id, p]) => el("button", { class: "chip", type: "button", style: `--pc: var(--c-${p.color})`, "aria-pressed": String(ui.filter === id),
         onclick: () => { ui.filter = id; render(); } }, el("span", { class: "dot" }), p.name)));
   }
@@ -615,7 +729,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       .filter(([, e]) => ui.filter === "all" || e.projectId === ui.filter)
       .sort((a, b) => b[1].start - a[1].start);
     if (!list.length) {
-      box.replaceChildren(el("div", { class: "empty", text: "Nothing logged yet. Start a project’s clock above. When you stop it, you’ll be asked what you worked on, and it will appear here." }));
+      box.replaceChildren(el("div", { class: "empty", text: "Nothing logged yet. Pick a project on a client card and start the clock. When you stop it, the time appears here." }));
       return;
     }
     const out = []; let cur = null, group = null;
@@ -626,7 +740,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
         const sum = list.filter(([, x]) => dayStart(x.start) === d).reduce((a, [, x]) => a + (x.seconds || 0), 0);
         out.push(el("div", { class: "day" }, el("span", { text: dayLabel(e.start) }), el("span", { class: "num", text: hm(sum) })));
       }
-      const p = state.projects[e.projectId] || { name: "Deleted project", color: "cobalt" };
+      const p = state.projects[e.projectId] || { name: "Deleted client", color: "cobalt" };
       out.push(el("div", { class: "entry", style: `--pc: var(--c-${p.color})` },
         el("span", { class: "when num", text: `${tFmt(e.start)}–${tFmt(e.end)}` }),
         el("div", { class: "what" },
@@ -652,6 +766,11 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       set(`a-${id}`, hm(t.all) + (p.rate ? ` · ${money(t.all / 3600 * p.rate)}` : ""));
       if (liveSec(p) > LONG_RUN && !document.querySelector(`[data-id="${id}"] .long`) && !ui.editingName && !ui.addingSub && !ui.menuFor) renderGrid();
     }
+    for (const [did, d] of Object.entries(state.deadlines)) {
+      const p = state.projects[d.projectId];
+      if (d.doneAt || !p || !p.runningSince || (d.sub && p.sub !== d.sub)) continue;
+      const n = document.querySelector(`[data-tick="dl-${did}"]`); if (n) n.textContent = dlProgress(d);
+    }
     const tn = $('[data-tick="today"]'), wn = $('[data-tick="week"]');
     if (tn) tn.textContent = hm(today); if (wn) wn.textContent = hm(week);
     document.title = anyRunning ? `● ${hm(Object.values(state.projects).reduce((a, p) => Math.max(a, p.runningSince ? liveSec(p) : 0), 0))} · Studio Time Card` : "Studio Time Card";
@@ -670,7 +789,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   function openEntry(entryId, { afterStop = false, manual = null } = {}) {
     const e = manual || state.entries[entryId]; if (!e) return;
     let projectId = e.projectId;
-    const p = () => state.projects[projectId] || { name: "Project", color: "cobalt" };
+    const p = () => state.projects[projectId] || { name: "Client", color: "cobalt" };
     ui.modal = entryId;
     const h0 = Math.floor(e.seconds / 3600), m0 = Math.round((e.seconds % 3600) / 60);
     const hrs = el("input", { id: "durH", type: "number", min: "0", value: String(h0), inputmode: "numeric", "aria-label": "Hours" });
@@ -679,11 +798,11 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     note.value = e.note || "";
     let tag = e.tag || "", sub = e.sub || "";
     const subPick = el("select", { id: "subPick" });
-    const subField = el("label", { class: "field", for: "subPick" }, el("span", { class: "label", text: "Sub-project" }), subPick);
+    const subField = el("label", { class: "field", for: "subPick" }, el("span", { class: "label", text: "Project" }), subPick);
     const fillSubs = () => {
       const names = [...new Set([...(p().subs || []), ...(sub ? [sub] : [])])];
       subField.hidden = !names.length;
-      subPick.replaceChildren(el("option", { value: "" }, "None"), ...names.map(n => el("option", { value: n, selected: n === sub }, n)));
+      subPick.replaceChildren(el("option", { value: "" }, "No specific project"), ...names.map(n => el("option", { value: n, selected: n === sub }, n)));
     };
     subPick.addEventListener("change", () => { sub = subPick.value; paint(); });
     const tagBox = el("div", { class: "chips" });
@@ -740,7 +859,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
 
     const body = el("form", { class: "body", onsubmit: ev => { ev.preventDefault(); save(); } },
       manual ? el("div", { class: "dur-edit" },
-        el("label", { class: "field", for: "projPick", style: "flex:1;min-width:140px" }, el("span", { class: "label", text: "Project" }), projPick),
+        el("label", { class: "field", for: "projPick", style: "flex:1;min-width:140px" }, el("span", { class: "label", text: "Client" }), projPick),
         el("label", { class: "field", for: "manDate" }, el("span", { class: "label", text: "Date" }), dateIn)) : null,
       subField,
       el("label", { class: "field", for: "noteText" }, el("span", { class: "label", text: "What did you work on?" }), note),
@@ -762,6 +881,85 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     setTimeout(() => note.focus(), 30);
   }
 
+  function openDeadline(editId) {
+    const existing = editId && state.deadlines[editId];
+    const clients = sortedProjects(false);
+    if (!clients.length) { toast("Add a client first."); return; }
+    const id = editId || uid();
+    let projectId = existing ? existing.projectId
+      : ui.filter !== "all" && state.projects[ui.filter] && !state.projects[ui.filter].archived ? ui.filter : clients[0][0];
+    let sub = existing ? existing.sub || "" : state.projects[projectId].sub || "";
+    const p = () => state.projects[projectId] || { name: "Client", color: "cobalt" };
+    ui.modal = id;
+    const clientPick = el("select", { id: "dlClient" }, clients.map(([cid, cp]) => el("option", { value: cid, selected: cid === projectId }, cp.name)));
+    const subPick = el("select", { id: "dlSub" });
+    const title = el("input", { id: "dlTitle", maxlength: "80", placeholder: "e.g. Instagram post: spring launch", value: existing ? existing.title : "" });
+    const due = el("input", { id: "dlDue", type: "date", required: true, style: "width: 100%", value: existing ? existing.due : isoDay(Date.now() + 7 * 864e5) });
+    const buf = el("input", { id: "dlBuf", type: "number", min: "0", max: "30", inputmode: "numeric",
+      value: String(existing ? existing.bufferDays || 0 : p().bufferDays ?? 1) });
+    const e0 = existing && existing.estimateSec || 0;
+    const hrs = el("input", { id: "dlH", type: "number", min: "0", inputmode: "numeric", value: e0 ? String(Math.floor(e0 / 3600)) : "", placeholder: "0", "aria-label": "Estimate hours" });
+    const mins = el("input", { id: "dlM", type: "number", min: "0", max: "59", inputmode: "numeric", value: e0 ? String(Math.round((e0 % 3600) / 60)) : "", placeholder: "0", "aria-label": "Estimate minutes" });
+    const past = el("div", { class: "hint" });
+    const band = el("div", { class: "band" });
+    const dialog = el("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "dlgTitle" });
+    const paint = () => {
+      dialog.style.setProperty("--pc", `var(--c-${p().color})`);
+      const n = Math.max(0, Math.round(+buf.value || 0));
+      band.replaceChildren(el("div", {},
+        el("div", { class: "queue", text: `${existing ? "Edit deadline" : "New deadline"} · ${p().name}${sub ? ` · ${sub}` : ""}` }),
+        el("h3", { id: "dlgTitle", text: !due.value ? "Pick a go-live date" : n ? `Send for review by ${dFmt(sendBy(due.value, n))}` : `Due ${dFmt(parseDay(due.value))}` })));
+      const s = pastEstimate(projectId, sub, existing ? id : null);
+      past.replaceChildren(...(s ? [`Past deadlines for this project took ${hm(s.avg)} on average (${s.n} done). `,
+        el("button", { class: "btn small ghost", type: "button", onclick: () => {
+          hrs.value = String(Math.floor(s.avg / 3600)); mins.value = String(Math.round((s.avg % 3600) / 60)); } }, "Use this")] : []));
+    };
+    const fillSubs = () => {
+      const names = [...new Set([...(p().subs || []), ...(sub ? [sub] : [])])];
+      subPick.replaceChildren(el("option", { value: "" }, "No specific project"), ...names.map(n => el("option", { value: n, selected: n === sub }, n)));
+    };
+    clientPick.addEventListener("change", () => {
+      projectId = clientPick.value; sub = "";
+      if (!existing) buf.value = String(p().bufferDays ?? 1);
+      fillSubs(); paint();
+    });
+    subPick.addEventListener("change", () => { sub = subPick.value; paint(); });
+    due.addEventListener("input", paint); buf.addEventListener("input", paint);
+
+    const save = async () => {
+      const t = title.value.trim();
+      if (!t) { title.focus(); toast("Give the deadline a title."); return; }
+      if (!due.value) { due.focus(); return; }
+      const bufferDays = Math.max(0, Math.round(+buf.value || 0)), est = (+hrs.value || 0) * 3600 + (+mins.value || 0) * 60;
+      await store.put("deadlines", id, { projectId, sub, title: t, due: due.value, bufferDays, estimateSec: est > 0 ? est : null,
+        createdAt: existing ? existing.createdAt : Date.now(), doneAt: existing ? existing.doneAt : null, actualSec: existing ? existing.actualSec : null });
+      // Remember the buffer so the next deadline for this client starts with it.
+      const cp = state.projects[projectId];
+      if (cp && cp.bufferDays !== bufferDays) await store.put("projects", projectId, { ...cp, bufferDays });
+      if (!existing) toast(bufferDays ? `Send “${t}” for review by ${dFmt(sendBy(due.value, bufferDays))}.` : `“${t}” is due ${dFmt(parseDay(due.value))}.`);
+      closeModal();
+    };
+    const body = el("form", { class: "body", onsubmit: ev => { ev.preventDefault(); save(); } },
+      el("div", { class: "dur-edit" },
+        el("label", { class: "field", for: "dlClient", style: "flex:1;min-width:140px" }, el("span", { class: "label", text: "Client" }), clientPick),
+        el("label", { class: "field", for: "dlSub", style: "flex:1;min-width:140px" }, el("span", { class: "label", text: "Project" }), subPick)),
+      el("label", { class: "field", for: "dlTitle" }, el("span", { class: "label", text: "What's due?" }), title),
+      el("div", { class: "dur-edit" },
+        el("label", { class: "field", for: "dlDue", style: "flex:1;min-width:140px" }, el("span", { class: "label", text: "Goes live" }), due),
+        el("label", { class: "field", for: "dlBuf" }, el("span", { class: "label", text: "Review buffer" }), el("span", { class: "dur-edit" }, buf, "working days before go-live"))),
+      el("div", { class: "field" }, el("span", { class: "label", text: "Estimate" }), el("div", { class: "dur-edit" }, hrs, "h", mins, "m"), past),
+      el("div", { class: "acts" },
+        existing ? el("button", { class: "btn ghost danger", type: "button", onclick: () => { closeModal(); removeDeadline(id); } }, "Delete") : null,
+        el("div", { class: "right" },
+          el("button", { class: "btn ghost", type: "button", onclick: closeModal }, "Cancel"),
+          el("button", { class: "btn primary", type: "submit" }, existing ? "Save" : "Add deadline"))));
+    dialog.append(band, body); fillSubs(); paint();
+    const scrim = el("div", { class: "scrim", onclick: ev => { if (ev.target === scrim) closeModal(); } }, dialog);
+    scrim.addEventListener("keydown", ev => { if (ev.key === "Escape") closeModal(); });
+    $("#modalRoot").replaceChildren(scrim);
+    setTimeout(() => title.focus(), 30);
+  }
+
   /* ---------- toast ---------- */
   let toastTimer;
   function toast(msg, undo, undoLabel = "Undo") {
@@ -776,7 +974,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   /* ---------- CSV ---------- */
   async function exportCsv() {
     const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const rows = [["Date", "Start", "End", "Project", "Sub-project", "Work type", "Description", "Hours", "Rate", "Amount"]];
+    const rows = [["Date", "Start", "End", "Client", "Project", "Work type", "Description", "Hours", "Rate", "Amount"]];
     Object.values(state.entries).sort((a, b) => a.start - b.start).forEach(e => {
       const p = state.projects[e.projectId] || {}, hrs = (e.seconds || 0) / 3600;
       const d = new Date(e.start);
@@ -798,10 +996,11 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   $("#single").addEventListener("change", e => store.put("settings", "main", { ...state.settings, single: e.target.checked }));
   $("#addManual").addEventListener("click", () => {
     const first = sortedProjects(false)[0];
-    if (!first) { toast("Add a project first."); return; }
+    if (!first) { toast("Add a client first."); return; }
     openEntry(uid(), { manual: { projectId: ui.filter !== "all" && state.projects[ui.filter] && !state.projects[ui.filter].archived ? ui.filter : first[0], seconds: 3600, note: "", tag: "" } });
   });
   $("#exportCsv").addEventListener("click", exportCsv);
+  $("#addDeadline").addEventListener("click", () => openDeadline());
   document.addEventListener("keydown", e => {
     if (ui.modal || ui.editingName || e.metaKey || e.ctrlKey || e.altKey) return;
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
