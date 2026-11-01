@@ -19,6 +19,10 @@ to see how much time each project gets.
 - Totals for today and this week. Edit or delete log entries. Filter the log by project.
 - Optional hourly rate per project, showing the amount earned.
 - Export as CSV for invoicing.
+- Pause and resume a timer without ending the session.
+- Sub-projects per project, picked from chips at the top of the card before starting. The chosen
+  sub-project labels the entry, so stopping logs straight away (a note can be added after). Switching
+  sub-project mid-session logs the time so far and carries on under the new one.
 
 ## Out of scope (suggested only, ask before building)
 - Hour budgets or retainer caps per project

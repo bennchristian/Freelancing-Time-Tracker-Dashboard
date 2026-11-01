@@ -13,6 +13,10 @@ new fields at the end.
 | runningSince | number \| null | epoch ms while running |
 | rate | number \| null | hourly rate, optional |
 | createdAt | number | epoch ms |
+| subs | string[] | sub-project names |
+| sub | string | selected sub-project, "" for none |
+| sessionStart | number \| null | epoch ms the current session began (running or paused) |
+| banked | number | seconds logged before the last pause |
 
 ## entries/{id}
 | field | type | notes |
@@ -23,6 +27,7 @@ new fields at the end.
 | seconds | number | billable duration (may differ from end-start if edited) |
 | note | string | "" means needs a label |
 | tag | string | optional work type |
+| sub | string | sub-project, "" for none |
 
 ## settings/main
 | field | type | notes |

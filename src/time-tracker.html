@@ -103,6 +103,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-
 .card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--pc); flex: none; }
 .card.running .dot { background: var(--on-color); animation: pulse 1.6s ease-in-out infinite; }
+.card.paused { border-color: var(--pc); box-shadow: inset 0 0 0 1px var(--pc), var(--shadow); }
 @keyframes pulse { 50% { opacity: .25; } }
 .key { font-family: var(--f-num); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; flex: none; }
 .card.running .key { color: var(--on-color); border-color: rgba(255,255,255,.4); }
@@ -118,7 +119,7 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-
 .card.running .menu-btn:hover { background: rgba(255,255,255,.14); }
 .session { display: grid; gap: 2px; }
 .session .big { font-size: 34px; font-weight: 500; line-height: 1.1; }
-.card:not(.running) .session .big { color: var(--muted); opacity: .55; }
+.card:not(.running):not(.paused) .session .big { color: var(--muted); opacity: .55; }
 .card .label { color: inherit; opacity: .7; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 .card.running .stats { border-color: rgba(255,255,255,.28); }
@@ -132,7 +133,28 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-
 .card.running .toggle { background: var(--on-color); color: var(--pc); }
 .toggle .ico { width: 10px; height: 10px; }
 .toggle .ico.play { width: 0; height: 0; border-left: 10px solid currentColor; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
-.toggle .ico.stop { background: currentColor; border-radius: 2px; }
+.toggle .ico.stop, .alt .ico.stop { background: currentColor; border-radius: 2px; }
+.ico.pause { width: 10px; height: 12px; border-left: 3.5px solid currentColor; border-right: 3.5px solid currentColor; }
+.acts-row { display: flex; gap: 8px; }
+.acts-row > * { flex: 1; min-width: 0; padding-inline: 8px; white-space: nowrap; }
+.alt {
+  border: 1.5px solid currentColor; border-radius: 10px; padding: 12px; font-weight: 600; font-size: 15px; background: transparent;
+  color: var(--pc); display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.alt .ico { width: 10px; height: 10px; }
+.alt .ico.pause { height: 12px; }
+.alt:hover { background: var(--sunk); }
+.card.running .alt { color: var(--on-color); }
+.card.running .alt:hover { background: rgba(255,255,255,.14); }
+/* sub-project switcher */
+.subs { display: flex; flex-wrap: wrap; gap: 6px; }
+.card .chip { padding: 3px 9px; font-size: 12.5px; background: transparent; color: inherit; }
+.card .chip[aria-pressed="true"] { background: var(--pc); border-color: var(--pc); color: var(--on-color); }
+.card .chip.add { border-style: dashed; color: var(--muted); }
+.card.running .chip { border-color: rgba(255,255,255,.4); }
+.card.running .chip.add { color: inherit; opacity: .8; }
+.card.running .chip[aria-pressed="true"] { background: var(--on-color); color: var(--pc); border-color: var(--on-color); }
+.sub-input { border: 1px solid var(--focus); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; width: 150px; background: var(--surface); color: var(--ink); }
 .long { font-size: 12.5px; background: rgba(0,0,0,.18); border-radius: 8px; padding: 6px 9px; }
 .add-tile {
   border: 1.5px dashed var(--line); border-radius: var(--r); background: transparent; min-height: 180px;
@@ -214,7 +236,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   <header class="top">
     <div>
       <h1>Studio Time Card</h1>
-      <p class="sub">Press a project to start its clock. Press again to stop and log what you did.</p>
+      <p class="sub">Pick a sub-project, then start the clock. Pause for breaks. Stop to log it.</p>
     </div>
     <div class="totals" id="totals" aria-live="off"></div>
   </header>
@@ -258,7 +280,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
 
   /* ---------- state ---------- */
   const state = { projects: {}, entries: {}, settings: { single: false, currency: "$" }, ready: false };
-  const ui = { editingName: null, nameDraft: "", menuFor: null, filter: "all", queue: [], modal: null, confirmDel: null };
+  const ui = { addingSub: null, subDraft: "", editingName: null, nameDraft: "", menuFor: null, filter: "all", queue: [], modal: null, confirmDel: null };
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const $ = (s, r = document) => r.querySelector(s);
@@ -295,7 +317,9 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   const sortedProjects = arch => Object.entries(state.projects)
     .filter(([, p]) => !!p.archived === arch)
     .sort((a, b) => (a[1].order ?? 0) - (b[1].order ?? 0));
-  const liveSec = p => p.runningSince ? (Date.now() - p.runningSince) / 1000 : 0;
+  // A session runs from sessionStart; banked holds the seconds from before the last pause.
+  const isActive = p => !!(p.runningSince || p.sessionStart);
+  const liveSec = p => (p.banked || 0) + (p.runningSince ? (Date.now() - p.runningSince) / 1000 : 0);
   function projectTotals(id) {
     const t = { all: 0, today: 0, week: 0 }, d = dayStart(), w = weekStart();
     for (const e of Object.values(state.entries)) {
@@ -305,7 +329,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       if (e.start >= w) t.week += e.seconds || 0;
     }
     const p = state.projects[id];
-    if (p && p.runningSince) { const s = liveSec(p); t.all += s; t.today += Math.min(s, (Date.now() - d) / 1000); t.week += s; }
+    if (p && isActive(p)) { const s = liveSec(p); t.all += s; t.today += Math.min(s, (Date.now() - d) / 1000); t.week += s; }
     return t;
   }
 
@@ -375,31 +399,62 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   function newProject(name, order) {
     const used = new Set(Object.values(state.projects).map(p => p.color));
     const color = COLORS.find(c => !used.has(c)) || COLORS[order % COLORS.length];
-    return { name, color, order, archived: false, runningSince: null, rate: null, createdAt: Date.now() };
+    return { name, color, order, archived: false, runningSince: null, rate: null, createdAt: Date.now(), subs: [], sub: "", sessionStart: null, banked: 0 };
   }
 
   /* ---------- actions ---------- */
+  // Starts a new session, or resumes a paused one.
   async function start(id) {
     const p = state.projects[id];
     if (!p || p.runningSince) return;
     if (state.settings.single) {
       for (const [oid, op] of sortedProjects(false)) if (op.runningSince) await stop(oid);
     }
-    await store.put("projects", id, { ...p, runningSince: Date.now() });
+    const now = Date.now(), cur = state.projects[id];
+    await store.put("projects", id, cur.sessionStart ? { ...cur, runningSince: now } : { ...cur, runningSince: now, sessionStart: now, banked: 0 });
+  }
+  async function pause(id) {
+    const p = state.projects[id];
+    if (!p || !p.runningSince) return;
+    await store.put("projects", id, { ...p, runningSince: null, sessionStart: p.sessionStart || p.runningSince, banked: liveSec(p) });
   }
   async function stop(id) {
     const p = state.projects[id];
-    if (!p || !p.runningSince) return;
-    const end = Date.now(), start = p.runningSince;
+    if (!p || !isActive(p)) return;
+    const end = Date.now(), start = p.sessionStart || p.runningSince;
     const entryId = uid();
-    const entry = { projectId: id, start, end, seconds: Math.round((end - start) / 1000), note: "", tag: "" };
+    const entry = { projectId: id, start, end, seconds: Math.round(liveSec(p)), note: "", tag: "", sub: p.sub || "" };
     // Save the time straight away; the prompt only adds the label.
-    await store.put("projects", id, { ...p, runningSince: null });
+    await store.put("projects", id, { ...p, runningSince: null, sessionStart: null, banked: 0 });
     await store.put("entries", entryId, entry);
+    if (entry.sub) {
+      // The sub-project was picked before starting, so it already labels the entry.
+      toast(`Logged ${hm(entry.seconds)} on ${p.name} · ${entry.sub}.`, () => openEntry(entryId), "Add note");
+      return;
+    }
     ui.queue.push(entryId);
     if (!ui.modal) openNext();
   }
-  const toggle = id => (state.projects[id] && state.projects[id].runningSince ? stop(id) : start(id));
+  const toggle = id => (state.projects[id] && isActive(state.projects[id]) ? stop(id) : start(id));
+
+  // Switching sub-project mid-session logs the time so far under the old one and carries on under the new one.
+  async function pickSub(id, name) {
+    const p = state.projects[id]; if (!p) return;
+    const next = p.sub === name ? "" : name;
+    if (next === (p.sub || "")) return;
+    const wasRunning = !!p.runningSince;
+    if (isActive(p)) await stop(id);
+    const cur = state.projects[id], now = Date.now();
+    await store.put("projects", id, wasRunning ? { ...cur, sub: next, runningSince: now, sessionStart: now, banked: 0 } : { ...cur, sub: next });
+  }
+  function commitSub(id) {
+    const p = state.projects[id], v = ui.subDraft.trim();
+    ui.addingSub = null; ui.subDraft = "";
+    if (!p || !v) { render(); return; }
+    const subs = p.subs || [];
+    if (!subs.includes(v)) store.put("projects", id, { ...p, subs: [...subs, v] });
+    pickSub(id, v);
+  }
 
   function addProject() {
     const n = sortedProjects(false).length + sortedProjects(true).length;
@@ -438,10 +493,11 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       el("span", { class: "plus", text: "+" }), el("span", { text: "Add project" })));
     grid.replaceChildren(...kids);
     if (ui.editingName) { const inp = $(`#name-${ui.editingName}`); if (inp) { inp.focus(); if (ui.selectAll) { inp.select(); ui.selectAll = false; } } }
+    else if (ui.addingSub) { const inp = $(`#sub-${ui.addingSub}`); if (inp) inp.focus(); }
   }
   function card(id, p, i) {
-    const t = projectTotals(id), run = !!p.runningSince, s = liveSec(p);
-    const c = el("article", { class: "card" + (run ? " running" : ""), style: `--pc: var(--c-${p.color || "cobalt"})`, "data-id": id });
+    const t = projectTotals(id), run = !!p.runningSince, paused = !run && !!p.sessionStart, s = liveSec(p);
+    const c = el("article", { class: "card" + (run ? " running" : paused ? " paused" : ""), style: `--pc: var(--c-${p.color || "cobalt"})`, "data-id": id });
     const nameEl = ui.editingName === id
       ? el("input", { class: "pname-input", id: `name-${id}`, value: ui.nameDraft || p.name, "aria-label": "Project name", maxlength: "60",
           oninput: e => { ui.nameDraft = e.target.value; },
@@ -454,8 +510,9 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       i < 9 ? el("span", { class: "key", title: `Press ${i + 1} to start or stop`, text: String(i + 1) }) : null,
       el("button", { class: "menu-btn", type: "button", "aria-label": `Options for ${p.name}`, "aria-expanded": String(ui.menuFor === id),
         onclick: () => { ui.menuFor = ui.menuFor === id ? null : id; render(); } }, "⋯")));
+    c.append(subSwitcher(id, p));
     c.append(el("div", { class: "session" },
-      el("span", { class: "label", text: run ? `Running since ${tFmt(p.runningSince)}` : "This session" }),
+      el("span", { class: "label", text: run ? `Running since ${tFmt(p.runningSince)}` : paused ? `Paused · started ${tFmt(p.sessionStart)}` : "This session" }),
       el("span", { class: "big num", "data-tick": `s-${id}`, text: clock(s) })));
     if (run && s > LONG_RUN) c.append(el("div", { class: "long", text: `Running for ${hm(s)}. Still working on this?` }));
     const stats = el("div", { class: "stats" },
@@ -464,10 +521,24 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       el("div", {}, el("span", { class: "label", text: p.rate ? "Total · earned" : "Total" }),
         el("span", { class: "num", "data-tick": `a-${id}`, text: hm(t.all) + (p.rate ? ` · ${money(t.all / 3600 * p.rate)}` : "") })));
     c.append(stats);
-    c.append(el("button", { class: "toggle", type: "button", "aria-pressed": String(run), onclick: () => toggle(id) },
-      el("span", { class: "ico " + (run ? "stop" : "play"), "aria-hidden": "true" }), run ? "Stop & log" : "Start"));
+    const btn = (cls, ico, label, fn) => el("button", { class: cls, type: "button", onclick: fn }, el("span", { class: "ico " + ico, "aria-hidden": "true" }), label);
+    c.append(el("div", { class: "acts-row" },
+      run ? [btn("alt", "pause", "Pause", () => pause(id)), btn("toggle", "stop", "Stop & log", () => stop(id))]
+      : paused ? [btn("toggle", "play", "Resume", () => start(id)), btn("alt", "stop", "Stop & log", () => stop(id))]
+      : btn("toggle", "play", "Start", () => start(id))));
     if (ui.menuFor === id) c.append(menu(id, p));
     return c;
+  }
+  function subSwitcher(id, p) {
+    const box = el("div", { class: "subs", role: "group", "aria-label": `${p.name} sub-projects` },
+      (p.subs || []).map(name => el("button", { class: "chip", type: "button", "aria-pressed": String(p.sub === name), onclick: () => pickSub(id, name) }, name)));
+    box.append(ui.addingSub === id
+      ? el("input", { class: "sub-input", id: `sub-${id}`, value: ui.subDraft, placeholder: "Sub-project name", "aria-label": "New sub-project name", maxlength: "40",
+          oninput: e => { ui.subDraft = e.target.value; },
+          onkeydown: e => { if (e.key === "Enter") commitSub(id); if (e.key === "Escape") { ui.addingSub = null; render(); } },
+          onblur: () => { if (!ui.rendering) commitSub(id); } })
+      : el("button", { class: "chip add", type: "button", onclick: () => { ui.addingSub = id; ui.subDraft = ""; render(); } }, (p.subs || []).length ? "+" : "+ Sub-project"));
+    return box;
   }
   function menu(id, p) {
     const pop = el("div", { class: "pop", role: "dialog", "aria-label": `${p.name} options` });
@@ -477,6 +548,9 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     const rate = el("input", { id: `rate-${id}`, type: "number", min: "0", step: "1", inputmode: "decimal", placeholder: "Optional", value: p.rate ?? "" });
     pop.append(el("label", { class: "field", for: `rate-${id}` }, el("span", { class: "label", text: `Hourly rate (${state.settings.currency})` }), rate));
     rate.addEventListener("change", () => { const v = parseFloat(rate.value); store.put("projects", id, { ...p, rate: v > 0 ? v : null }); });
+    if ((p.subs || []).length) pop.append(el("span", { class: "label", text: "Remove sub-projects" }),
+      el("div", { class: "row" }, p.subs.map(name => el("button", { class: "btn small", type: "button", "aria-label": `Remove ${name}`,
+        onclick: () => store.put("projects", id, { ...p, subs: p.subs.filter(x => x !== name), sub: p.sub === name && !isActive(p) ? "" : p.sub }) }, `${name} ×`))));
     const order = sortedProjects(false), idx = order.findIndex(([k]) => k === id);
     const swap = dir => {
       const other = order[idx + dir]; if (!other) return;
@@ -490,7 +564,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     pop.append(el("div", { class: "row" },
       el("button", { class: "btn small", type: "button", onclick: async () => {
         ui.menuFor = null;
-        if (p.runningSince) await stop(id);
+        if (isActive(p)) await stop(id);
         const cur = state.projects[id];
         store.put("projects", id, { ...cur, archived: true });
         toast(`Archived “${p.name}”. Its log entries stay in the log.`);
@@ -556,8 +630,8 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       out.push(el("div", { class: "entry", style: `--pc: var(--c-${p.color})` },
         el("span", { class: "when num", text: `${tFmt(e.start)}–${tFmt(e.end)}` }),
         el("div", { class: "what" },
-          el("span", { class: "note" + (e.note ? "" : " missing"), text: e.note || "Needs a label" }),
-          el("span", { class: "meta" }, el("span", { class: "dot" }), p.name, e.tag ? el("span", { class: "tag", text: e.tag }) : null)),
+          el("span", { class: "note" + (e.note || e.sub ? "" : " missing"), text: e.note || e.sub || "Needs a label" }),
+          el("span", { class: "meta" }, el("span", { class: "dot" }), p.name + (e.note && e.sub ? ` · ${e.sub}` : ""), e.tag ? el("span", { class: "tag", text: e.tag }) : null)),
         el("span", { class: "dur num", text: hm(e.seconds) }),
         el("span", { class: "acts" }, el("button", { class: "btn small ghost", type: "button", onclick: () => openEntry(id) }, "Edit"))));
     }
@@ -576,11 +650,11 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       const set = (k, v) => { const n = document.querySelector(`[data-tick="${k}"]`); if (n) n.textContent = v; };
       set(`s-${id}`, clock(liveSec(p))); set(`d-${id}`, hm(t.today)); set(`w-${id}`, hm(t.week));
       set(`a-${id}`, hm(t.all) + (p.rate ? ` · ${money(t.all / 3600 * p.rate)}` : ""));
-      if (liveSec(p) > LONG_RUN && !document.querySelector(`[data-id="${id}"] .long`) && !ui.editingName && !ui.menuFor) renderGrid();
+      if (liveSec(p) > LONG_RUN && !document.querySelector(`[data-id="${id}"] .long`) && !ui.editingName && !ui.addingSub && !ui.menuFor) renderGrid();
     }
     const tn = $('[data-tick="today"]'), wn = $('[data-tick="week"]');
     if (tn) tn.textContent = hm(today); if (wn) wn.textContent = hm(week);
-    document.title = anyRunning ? `● ${hm(Object.values(state.projects).reduce((a, p) => Math.max(a, liveSec(p)), 0))} · Studio Time Card` : "Studio Time Card";
+    document.title = anyRunning ? `● ${hm(Object.values(state.projects).reduce((a, p) => Math.max(a, p.runningSince ? liveSec(p) : 0), 0))} · Studio Time Card` : "Studio Time Card";
   }, 1000);
 
   /* ---------- log dialog (after stop, edit, manual) ---------- */
@@ -603,7 +677,15 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     const mins = el("input", { id: "durM", type: "number", min: "0", max: "59", value: String(m0), inputmode: "numeric", "aria-label": "Minutes" });
     const note = el("textarea", { id: "noteText", placeholder: "e.g. Homepage hero layout, two options for review", maxlength: "500" });
     note.value = e.note || "";
-    let tag = e.tag || "";
+    let tag = e.tag || "", sub = e.sub || "";
+    const subPick = el("select", { id: "subPick" });
+    const subField = el("label", { class: "field", for: "subPick" }, el("span", { class: "label", text: "Sub-project" }), subPick);
+    const fillSubs = () => {
+      const names = [...new Set([...(p().subs || []), ...(sub ? [sub] : [])])];
+      subField.hidden = !names.length;
+      subPick.replaceChildren(el("option", { value: "" }, "None"), ...names.map(n => el("option", { value: n, selected: n === sub }, n)));
+    };
+    subPick.addEventListener("change", () => { sub = subPick.value; paint(); });
     const tagBox = el("div", { class: "chips" });
     const drawTags = () => tagBox.replaceChildren(...TAGS.map(t => el("button", { class: "chip", type: "button", "aria-pressed": String(tag === t),
       onclick: () => { tag = tag === t ? "" : t; drawTags(); } }, t)));
@@ -616,7 +698,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       durLabel.textContent = hm((+hrs.value || 0) * 3600 + (+mins.value || 0) * 60);
       band.replaceChildren(el("div", {},
         el("div", { class: "queue", text: afterStop ? (ui.queue.length > 1 ? `Stopped · ${ui.queue.length - 1} more to log after this` : "Stopped") : manual ? "Add time" : "Edit entry" }),
-        el("h3", { id: "dlgTitle", text: p().name })), durLabel);
+        el("h3", { id: "dlgTitle", text: p().name + (sub ? ` · ${sub}` : "") })), durLabel);
     };
     hrs.addEventListener("input", paint); mins.addEventListener("input", paint);
 
@@ -624,7 +706,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     if (manual) {
       const opts = sortedProjects(false);
       projPick = el("select", { id: "projPick" }, opts.map(([id, pp]) => el("option", { value: id, selected: id === projectId }, pp.name)));
-      projPick.addEventListener("change", () => { projectId = projPick.value; paint(); });
+      projPick.addEventListener("change", () => { projectId = projPick.value; sub = ""; fillSubs(); paint(); });
     }
     const dateIn = manual ? el("input", { id: "manDate", type: "date", value: new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10) }) : null;
 
@@ -635,11 +717,11 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
         const base = new Date(y, mo - 1, d, 12).getTime();
         const isToday = dayStart(base) === dayStart();
         const end = isToday ? Date.now() : base + seconds * 500, start = end - seconds * 1000;
-        await store.put("entries", entryId, { projectId, start, end, seconds, note: note.value.trim(), tag, manual: true });
+        await store.put("entries", entryId, { projectId, start, end, seconds, note: note.value.trim(), tag, manual: true, sub });
         toast(`Added ${hm(seconds)} to ${p().name}.`);
       } else {
         const cur = state.entries[entryId]; if (!cur) return closeModal();
-        await store.put("entries", entryId, { ...cur, seconds, note: note.value.trim(), tag });
+        await store.put("entries", entryId, { ...cur, seconds, note: note.value.trim(), tag, sub });
         if (afterStop) toast(`Logged ${hm(seconds)} on ${p().name}.`);
       }
       if (afterStop) ui.queue.shift();
@@ -660,6 +742,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       manual ? el("div", { class: "dur-edit" },
         el("label", { class: "field", for: "projPick", style: "flex:1;min-width:140px" }, el("span", { class: "label", text: "Project" }), projPick),
         el("label", { class: "field", for: "manDate" }, el("span", { class: "label", text: "Date" }), dateIn)) : null,
+      subField,
       el("label", { class: "field", for: "noteText" }, el("span", { class: "label", text: "What did you work on?" }), note),
       el("div", { class: "field" }, el("span", { class: "label", text: "Type of work" }), tagBox),
       el("div", { class: "field" }, el("span", { class: "label", text: "Time to log" }),
@@ -672,7 +755,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
           el("button", { class: "btn primary", type: "submit" }, manual ? "Add time" : "Log time"))),
       el("span", { class: "hint", text: "Press ⌘/Ctrl + Enter to save." }));
     note.addEventListener("keydown", ev => { if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); save(); } });
-    dialog.append(band, body); paint();
+    dialog.append(band, body); fillSubs(); paint();
     const scrim = el("div", { class: "scrim", onclick: ev => { if (ev.target === scrim) (manual ? closeModal : later)(); } }, dialog);
     scrim.addEventListener("keydown", ev => { if (ev.key === "Escape") (manual ? closeModal : later)(); });
     $("#modalRoot").replaceChildren(scrim);
@@ -681,10 +764,10 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
 
   /* ---------- toast ---------- */
   let toastTimer;
-  function toast(msg, undo) {
+  function toast(msg, undo, undoLabel = "Undo") {
     clearTimeout(toastTimer);
     const t = el("div", { class: "toast", role: "status" }, el("span", { text: msg }),
-      undo ? el("button", { type: "button", onclick: () => { undo(); $("#toastRoot").replaceChildren(); } }, "Undo") : null);
+      undo ? el("button", { type: "button", onclick: () => { undo(); $("#toastRoot").replaceChildren(); } }, undoLabel) : null);
     $("#toastRoot").replaceChildren(t);
     toastTimer = setTimeout(() => $("#toastRoot").replaceChildren(), undo ? 6000 : 3200);
   }
@@ -693,11 +776,11 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   /* ---------- CSV ---------- */
   async function exportCsv() {
     const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const rows = [["Date", "Start", "End", "Project", "Work type", "Description", "Hours", "Rate", "Amount"]];
+    const rows = [["Date", "Start", "End", "Project", "Sub-project", "Work type", "Description", "Hours", "Rate", "Amount"]];
     Object.values(state.entries).sort((a, b) => a.start - b.start).forEach(e => {
       const p = state.projects[e.projectId] || {}, hrs = (e.seconds || 0) / 3600;
       const d = new Date(e.start);
-      rows.push([`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, tFmt(e.start), tFmt(e.end), p.name || "", e.tag || "", e.note || "",
+      rows.push([`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, tFmt(e.start), tFmt(e.end), p.name || "", e.sub || "", e.tag || "", e.note || "",
         hrs.toFixed(2), p.rate || "", p.rate ? (hrs * p.rate).toFixed(2) : ""]);
     });
     const csv = rows.map(r => r.map(q).join(",")).join("\n");
