@@ -18,6 +18,9 @@ new fields at the end.
 | sessionStart | number \| null | epoch ms the current session began (running or paused) |
 | banked | number | seconds logged before the last pause |
 | bufferDays | number | default review buffer for new deadlines (working days) |
+| segs | {sub, start, end, seconds}[] | finished stretches of the current session, one per project switch |
+| segStart | number \| null | epoch ms the current stretch began |
+| pausedAt | number \| null | epoch ms of the last pause; a paused session from an earlier day is auto-logged up to here |
 
 ## entries/{id}
 | field | type | notes |

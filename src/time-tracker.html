@@ -53,6 +53,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   background: var(--bg); color: var(--ink);
   font-family: var(--f-ui); font-size: 15px; line-height: 1.45;
@@ -106,8 +107,6 @@ h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-
 .card.running .dot { background: var(--on-color); animation: pulse 1.6s ease-in-out infinite; }
 .card.paused { border-color: var(--pc); box-shadow: inset 0 0 0 1px var(--pc), var(--shadow); }
 @keyframes pulse { 50% { opacity: .25; } }
-.key { font-family: var(--f-num); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; flex: none; }
-.card.running .key { color: var(--on-color); border-color: rgba(255,255,255,.4); }
 .pname {
   flex: 1; min-width: 0; font-size: 17px; font-weight: 600; background: none; border: 0; padding: 2px 4px; margin: -2px -4px;
   border-radius: 6px; text-align: left; overflow-wrap: anywhere;
@@ -213,6 +212,11 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   .entry .acts { grid-column: 1 / -1; justify-self: start; }
 }
 
+/* client view tabs */
+.views .chip { padding: 6px 14px; font-size: 14px; }
+.views .chip .hint { font-size: 12px; }
+.grid.solo { grid-template-columns: minmax(0, 420px); }
+
 /* deadlines */
 .dl { grid-template-columns: minmax(0, 1fr) 140px auto; }
 .dl .send { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-weight: 600; font-size: 14px; }
@@ -258,6 +262,8 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     <div class="totals" id="totals" aria-live="off"></div>
   </header>
 
+  <nav class="chips views" id="views" aria-label="Clients"></nav>
+
   <div class="toolbar">
     <label class="switch" for="single"><input type="checkbox" id="single"> One timer at a time</label>
     <span class="note-bar" id="storeNote">Loading your clients…</span>
@@ -292,7 +298,6 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
         <button class="btn small" id="exportCsv" type="button">Export CSV</button>
       </div>
     </div>
-    <div class="chips" id="filters"></div>
     <div class="log" id="log"></div>
   </section>
 </div>
@@ -309,8 +314,16 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
 
   /* ---------- state ---------- */
   const state = { projects: {}, entries: {}, deadlines: {}, settings: { single: false, currency: "$" }, ready: false };
-  const ui = { addingSub: null, subDraft: "", editingName: null, nameDraft: "", menuFor: null, filter: "all", queue: [], modal: null, confirmDel: null };
+  const ui = { addingSub: null, subDraft: "", editingName: null, nameDraft: "", menuFor: null, filter: savedView(), queue: [], modal: null, confirmDel: null };
 
+  function savedView() { try { return localStorage.getItem("ftt-view") || "all"; } catch (_) { return "all"; } }
+  function setView(id) {
+    ui.filter = id;
+    try { localStorage.setItem("ftt-view", id); } catch (_) {}
+    render();
+  }
+  // "all", or the one client the page is narrowed to.
+  const inView = id => ui.filter === "all" || ui.filter === id;
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const $ = (s, r = document) => r.querySelector(s);
   function el(tag, attrs = {}, ...kids) {
@@ -357,6 +370,11 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     .sort((a, b) => (a[1].order ?? 0) - (b[1].order ?? 0));
   // A session runs from sessionStart; banked holds the seconds from before the last pause.
   const isActive = p => !!(p.runningSince || p.sessionStart);
+  // Stretches of the current session, one per project worked on, the last one still open.
+  function sessionParts(p) {
+    const segs = p.segs || [];
+    return [...segs, { sub: p.sub || "", start: p.segStart || p.sessionStart || p.runningSince, seconds: liveSec(p) - segs.reduce((a, x) => a + x.seconds, 0) }];
+  }
   const liveSec = p => (p.banked || 0) + (p.runningSince ? (Date.now() - p.runningSince) / 1000 : 0);
   function projectTotals(id) {
     const t = { all: 0, today: 0, week: 0 }, d = dayStart(), w = weekStart();
@@ -378,7 +396,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     let s = 0;
     for (const e of Object.values(state.entries)) if (match(e.projectId, e.sub) && e.start >= from && e.start <= until) s += e.seconds || 0;
     const p = state.projects[dl.projectId];
-    if (!dl.doneAt && p && isActive(p) && match(dl.projectId, p.sub)) s += liveSec(p);
+    if (!dl.doneAt && p && isActive(p)) for (const x of sessionParts(p)) if (match(dl.projectId, x.sub)) s += x.seconds;
     return s;
   }
   const dlProgress = dl => dl.estimateSec ? `${hm(deadlineSec(dl))} of ${hm(dl.estimateSec)}` : `${hm(deadlineSec(dl))} logged`;
@@ -466,41 +484,60 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
       for (const [oid, op] of sortedProjects(false)) if (op.runningSince) await stop(oid);
     }
     const now = Date.now(), cur = state.projects[id];
-    await store.put("projects", id, cur.sessionStart ? { ...cur, runningSince: now } : { ...cur, runningSince: now, sessionStart: now, banked: 0 });
+    await store.put("projects", id, cur.sessionStart ? { ...cur, runningSince: now, pausedAt: null }
+      : { ...cur, runningSince: now, sessionStart: now, banked: 0, segs: [], segStart: now, pausedAt: null });
   }
   async function pause(id) {
     const p = state.projects[id];
     if (!p || !p.runningSince) return;
-    await store.put("projects", id, { ...p, runningSince: null, sessionStart: p.sessionStart || p.runningSince, banked: liveSec(p) });
+    await store.put("projects", id, { ...p, runningSince: null, sessionStart: p.sessionStart || p.runningSince, banked: liveSec(p), pausedAt: Date.now() });
   }
-  async function stop(id) {
+  // Logs the session as one entry per project worked on. `auto` closes a session left paused on an earlier day.
+  async function stop(id, { auto = false } = {}) {
     const p = state.projects[id];
     if (!p || !isActive(p)) return;
-    const end = Date.now(), start = p.sessionStart || p.runningSince;
-    const entryId = uid();
-    const entry = { projectId: id, start, end, seconds: Math.round(liveSec(p)), note: "", tag: "", sub: p.sub || "" };
-    // Save the time straight away; the prompt only adds the label.
-    await store.put("projects", id, { ...p, runningSince: null, sessionStart: null, banked: 0 });
-    await store.put("entries", entryId, entry);
-    if (entry.sub) {
-      // The sub-project was picked before starting, so it already labels the entry.
-      toast(`Logged ${hm(entry.seconds)} on ${p.name} · ${entry.sub}.`, () => openEntry(entryId), "Add note");
+    const end = auto ? p.pausedAt || p.sessionStart : Date.now();
+    const parts = sessionParts(p).map((x, i, all) => ({ ...x, end: x.end || end })).filter((x, i, all) => x.seconds > 0 || all.length === 1);
+    // Save the time straight away; the prompt only adds labels.
+    await store.put("projects", id, { ...p, runningSince: null, sessionStart: null, banked: 0, segs: [], segStart: null, pausedAt: null });
+    const ids = [];
+    for (const x of parts) {
+      // Auto-log ids are fixed so two open tabs can't log the same session twice.
+      const entryId = auto ? `auto-${id}-${Math.round(x.start)}` : uid();
+      await store.put("entries", entryId, { projectId: id, start: x.start, end: x.end, seconds: Math.round(x.seconds), note: "", tag: "", sub: x.sub });
+      ids.push(entryId);
+    }
+    const total = hm(parts.reduce((a, x) => a + x.seconds, 0));
+    if (auto) { toast(`Logged ${total} on ${p.name} from a session left paused on ${dFmt(end)}.`); return; }
+    const unlabeled = ids.filter((_, i) => !parts[i].sub);
+    if (!unlabeled.length) {
+      // The project was picked before starting, so it already labels the entry.
+      if (parts.length === 1) toast(`Logged ${total} on ${p.name} · ${parts[0].sub}.`, () => openEntry(ids[0]), "Add note");
+      else {
+        const per = {};
+        for (const x of parts) per[x.sub] = (per[x.sub] || 0) + x.seconds;
+        toast(`Logged ${total} on ${p.name}: ${Object.entries(per).map(([sub, sec]) => `${sub} ${hm(sec)}`).join(", ")}.`);
+      }
       return;
     }
-    ui.queue.push(entryId);
+    ui.queue.push(...unlabeled);
     if (!ui.modal) openNext();
+  }
+  // Sessions still paused when the day ends are logged up to the moment they were paused.
+  function autoLogPaused() {
+    for (const [id, p] of Object.entries(state.projects))
+      if (!p.runningSince && p.sessionStart && dayStart(p.pausedAt || p.sessionStart) < dayStart()) stop(id, { auto: true });
   }
   const toggle = id => (state.projects[id] && isActive(state.projects[id]) ? stop(id) : start(id));
 
-  // Switching sub-project mid-session logs the time so far under the old one and carries on under the new one.
+  // Switching project mid-session closes the current stretch; it's logged with the rest when the session stops.
   async function pickSub(id, name) {
     const p = state.projects[id]; if (!p) return;
     const next = p.sub === name ? "" : name;
     if (next === (p.sub || "")) return;
-    const wasRunning = !!p.runningSince;
-    if (isActive(p)) await stop(id);
-    const cur = state.projects[id], now = Date.now();
-    await store.put("projects", id, wasRunning ? { ...cur, sub: next, runningSince: now, sessionStart: now, banked: 0 } : { ...cur, sub: next });
+    if (!isActive(p)) { await store.put("projects", id, { ...p, sub: next }); return; }
+    const now = Date.now(), parts = sessionParts(p), cur = { ...parts.pop(), end: p.runningSince ? now : p.pausedAt || now };
+    await store.put("projects", id, { ...p, sub: next, segs: cur.seconds > 0 ? [...parts, cur] : parts, segStart: now });
   }
   function commitSub(id) {
     const p = state.projects[id], v = ui.subDraft.trim();
@@ -543,25 +580,29 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   /* ---------- rendering ---------- */
   function render() {
     ui.rendering = true; // a re-render removes the focused name input; ignore the blur that causes
-    try { renderTotals(); renderDeadlines(); renderGrid(); renderArchived(); renderFilters(); renderLog(); }
+    if (ui.filter !== "all" && state.ready && !state.projects[ui.filter]) ui.filter = "all";
+    try { renderViews(); renderTotals(); renderDeadlines(); renderGrid(); renderArchived(); renderLog(); }
     finally { ui.rendering = false; }
     $("#single").checked = !!state.settings.single;
   }
   function renderTotals() {
     let today = 0, week = 0, running = 0;
     for (const [id, p] of Object.entries(state.projects)) {
+      if (!inView(id)) continue;
       const t = projectTotals(id); today += t.today; week += t.week; if (p.runningSince) running++;
     }
+    const one = ui.filter !== "all" && state.projects[ui.filter];
     const box = $("#totals"); box.replaceChildren(
       el("div", {}, el("span", { class: "label", text: "Today" }), el("span", { class: "num", "data-tick": "today", text: hm(today) })),
       el("div", {}, el("span", { class: "label", text: "This week" }), el("span", { class: "num", "data-tick": "week", text: hm(week) })),
-      el("div", {}, el("span", { class: "label", text: "Running" }), el("span", { class: "num", text: String(running) }))
+      one ? el("div", {}, el("span", { class: "label", text: one.rate ? "Total · earned" : "Total" }), el("span", { class: "num", "data-tick": "total", text: clientTotal(ui.filter) }))
+        : el("div", {}, el("span", { class: "label", text: "Running" }), el("span", { class: "num", text: String(running) }))
     );
   }
   function renderDeadlines() {
     const box = $("#deadlines");
     if (!state.ready) { box.replaceChildren(el("div", { class: "empty", text: "Loading your deadlines…" })); return; }
-    const all = Object.entries(state.deadlines).filter(([, d]) => state.projects[d.projectId] && !state.projects[d.projectId].archived);
+    const all = Object.entries(state.deadlines).filter(([, d]) => state.projects[d.projectId] && !state.projects[d.projectId].archived && inView(d.projectId));
     const by = d => sendBy(d.due, d.bufferDays || 0);
     const open = all.filter(([, d]) => !d.doneAt).sort((a, b) => by(a[1]) - by(b[1]));
     const done = all.filter(([, d]) => d.doneAt).sort((a, b) => b[1].doneAt - a[1].doneAt);
@@ -599,16 +640,21 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
         el("button", { class: "btn small", type: "button", onclick: () => finishDeadline(id) }, "Done"),
         el("button", { class: "btn small ghost", type: "button", onclick: () => openDeadline(id) }, "Edit")));
   }
+  function clientTotal(id) {
+    const p = state.projects[id], all = projectTotals(id).all;
+    return hm(all) + (p.rate ? ` · ${money(all / 3600 * p.rate)}` : "");
+  }
   function renderGrid() {
     const grid = $("#grid"), list = sortedProjects(false);
-    const kids = list.map(([id, p], i) => card(id, p, i));
-    kids.push(el("button", { class: "add-tile", type: "button", onclick: addProject },
+    const kids = list.filter(([id]) => inView(id)).map(([id, p]) => card(id, p));
+    if (ui.filter === "all") kids.push(el("button", { class: "add-tile", type: "button", onclick: addProject },
       el("span", { class: "plus", text: "+" }), el("span", { text: "Add client" })));
+    grid.classList.toggle("solo", ui.filter !== "all");
     grid.replaceChildren(...kids);
     if (ui.editingName) { const inp = $(`#name-${ui.editingName}`); if (inp) { inp.focus(); if (ui.selectAll) { inp.select(); ui.selectAll = false; } } }
     else if (ui.addingSub) { const inp = $(`#sub-${ui.addingSub}`); if (inp) inp.focus(); }
   }
-  function card(id, p, i) {
+  function card(id, p) {
     const t = projectTotals(id), run = !!p.runningSince, paused = !run && !!p.sessionStart, s = liveSec(p);
     const c = el("article", { class: "card" + (run ? " running" : paused ? " paused" : ""), style: `--pc: var(--c-${p.color || "cobalt"})`, "data-id": id });
     const nameEl = ui.editingName === id
@@ -620,7 +666,6 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
           onclick: () => { ui.editingName = id; ui.nameDraft = p.name; ui.menuFor = null; render(); } });
     c.append(el("div", { class: "card-head" },
       el("span", { class: "dot", "aria-hidden": "true" }), nameEl,
-      i < 9 ? el("span", { class: "key", title: `Press ${i + 1} to start or stop`, text: String(i + 1) }) : null,
       el("button", { class: "menu-btn", type: "button", "aria-label": `Options for ${p.name}`, "aria-expanded": String(ui.menuFor === id),
         onclick: () => { ui.menuFor = ui.menuFor === id ? null : id; render(); } }, "⋯")));
     c.append(subSwitcher(id, p));
@@ -686,7 +731,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     return pop;
   }
   function renderArchived() {
-    const list = sortedProjects(true), box = $("#archived");
+    const list = sortedProjects(true).filter(([id]) => inView(id)), box = $("#archived");
     box.hidden = !list.length;
     $("#archSummary").textContent = `Archived clients (${list.length})`;
     $("#archList").replaceChildren(...list.map(([id, p]) => {
@@ -710,17 +755,19 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     for (const k of ids) await store.del("entries", k);
     for (const [k, d] of Object.entries(state.deadlines)) if (d.projectId === id) await store.del("deadlines", k);
     await store.del("projects", id);
-    if (ui.filter === id) ui.filter = "all";
+    if (ui.filter === id) setView("all");
     toast("Client deleted.");
   }
-  function renderFilters() {
-    const projs = [...sortedProjects(false), ...sortedProjects(true)].filter(([id]) => Object.values(state.entries).some(e => e.projectId === id));
-    const box = $("#filters");
+  // Tabs that narrow the whole page (totals, deadlines, timer, log) to one client.
+  function renderViews() {
+    const hasLog = id => Object.values(state.entries).some(e => e.projectId === id);
+    const projs = [...sortedProjects(false), ...sortedProjects(true).filter(([id]) => hasLog(id) || ui.filter === id)];
+    const box = $("#views");
     if (projs.length < 2) { box.replaceChildren(); return; }
     box.replaceChildren(
-      el("button", { class: "chip", type: "button", "aria-pressed": String(ui.filter === "all"), onclick: () => { ui.filter = "all"; render(); } }, "All clients"),
+      el("button", { class: "chip", type: "button", "aria-pressed": String(ui.filter === "all"), onclick: () => setView("all") }, "All clients"),
       ...projs.map(([id, p]) => el("button", { class: "chip", type: "button", style: `--pc: var(--c-${p.color})`, "aria-pressed": String(ui.filter === id),
-        onclick: () => { ui.filter = id; render(); } }, el("span", { class: "dot" }), p.name)));
+        onclick: () => setView(id) }, el("span", { class: "dot" }), p.name, p.archived ? el("span", { class: "hint", text: "archived" }) : null)));
   }
   function renderLog() {
     const box = $("#log");
@@ -755,11 +802,13 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
   /* ---------- ticker: updates only the numbers, never the inputs ---------- */
   setInterval(() => {
     if (!state.ready) return;
+    autoLogPaused();
     const anyRunning = Object.values(state.projects).some(p => p.runningSince);
     if (!anyRunning) return;
     let today = 0, week = 0;
     for (const [id, p] of Object.entries(state.projects)) {
-      const t = projectTotals(id); today += t.today; week += t.week;
+      const t = projectTotals(id);
+      if (inView(id)) { today += t.today; week += t.week; }
       if (!p.runningSince || p.archived) continue;
       const set = (k, v) => { const n = document.querySelector(`[data-tick="${k}"]`); if (n) n.textContent = v; };
       set(`s-${id}`, clock(liveSec(p))); set(`d-${id}`, hm(t.today)); set(`w-${id}`, hm(t.week));
@@ -773,6 +822,7 @@ h2 { margin: 0; font-size: 19px; font-weight: 600; }
     }
     const tn = $('[data-tick="today"]'), wn = $('[data-tick="week"]');
     if (tn) tn.textContent = hm(today); if (wn) wn.textContent = hm(week);
+    const tt = $('[data-tick="total"]'); if (tt && state.projects[ui.filter]) tt.textContent = clientTotal(ui.filter);
     document.title = anyRunning ? `● ${hm(Object.values(state.projects).reduce((a, p) => Math.max(a, p.runningSince ? liveSec(p) : 0), 0))} · Studio Time Card` : "Studio Time Card";
   }, 1000);
 

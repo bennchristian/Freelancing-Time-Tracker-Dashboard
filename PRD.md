@@ -19,13 +19,16 @@ a client needs to review work before it goes live.
 - Option to run one timer at a time: starting one stops the others.
 - Adjust the duration in the stop prompt, or discard an accidental run.
 - Add time by hand for work done away from the tracker.
-- Totals for today and this week. Edit or delete log entries. Filter the log by client.
+- Totals for today and this week. Edit or delete log entries.
 - Optional hourly rate per client, showing the amount earned.
 - Export as CSV for invoicing.
+- Client view: tabs at the top narrow the whole page to one client (its totals, deadlines, timer
+  card and log). The last view is remembered in this browser.
 - Pause and resume a timer without ending the session.
 - Projects per client, picked from chips at the top of the card before starting. The chosen
   project labels the entry, so stopping logs straight away (a note can be added after). Switching
-  project mid-session logs the time so far and carries on under the new one.
+  project mid-session doesn't log anything yet; Stop & log saves one entry per project worked on.
+  A session still paused at the end of the day is logged automatically, ending when it was paused.
 - Deadlines: a go-live date plus a review buffer in working days gives a "send for review by" date,
   with an Overdue / Send today / Send tomorrow status. Each client remembers its last buffer.
   An optional estimate is tracked against time logged on that client and project, and finished
