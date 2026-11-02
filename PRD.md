@@ -24,10 +24,13 @@ a client needs to review work before it goes live.
 - Export as CSV for invoicing.
 - Client view: tabs at the top narrow the whole page to one client (its totals, deadlines, timer
   card and log). The last view is remembered in this browser.
+- On All clients, Deadlines lists everything to send today or overdue, and at least the 5 soonest;
+  "Show all" expands the full list. A client's tab always shows all of its deadlines.
 - Pause and resume a timer without ending the session.
 - Projects per client, picked from chips at the top of the card before starting. The chosen
   project labels the entry, so stopping logs straight away (a note can be added after). Switching
-  project mid-session doesn't log anything yet; Stop & log saves one entry per project worked on.
+  project mid-session resets the clock to the new project and doesn't log anything yet; the card keeps
+  a per-project tally for the session, and Stop & log saves one entry per project worked on.
   A session still paused at the end of the day is logged automatically, ending when it was paused.
 - Deadlines: a go-live date plus a review buffer in working days gives a "send for review by" date,
   with an Overdue / Send today / Send tomorrow status. Each client remembers its last buffer.
